@@ -19,6 +19,9 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     "max_client_polish": 0 | 1 | 2                   // Quick=0, Standard=1, Deep=2
   },
   "heartbeat_choice": null | "continue_full" | "research_summary_only" | "switch_to_quick",  // owner: memo Phase 7.5
+  "revision_gate_choice": null | "continue" | "accepted_early",  // owner: memo Phase 9 step 6b (end-of-iteration gate); reset per iteration
+  "client_readiness_gate_choice": null | "continue" | "skip_polish",  // owner: memo Phase 9 step 6c (forced-exit gate)
+  "polish_gate_choice": null | "apply" | "skip",  // owner: memo Phase 10 (pre-polish gate)
 
   "fallback_banners": [],                            // owner: any fallback path in always-deliver.md; consumed by md_to_docx.py
 
@@ -84,10 +87,12 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     "blocking_issues": []
   },
 
-  "final_status": null                              // owner: revision-mediator (writes during exit) or memo Phase 11
+  "final_status": null                              // owner: revision-mediator (writes during exit) or memo Phase 11 or Phase 9 step 6b
     | "approved_on_v<N>"
     | "forced_exit_on_v<N>_with_remaining_issues"
-    | "manual_review_required_on_v<N>",
+    | "manual_review_required_on_v<N>"
+    | "accepted_early_on_v<N>"                       // user picked "Accept v<N> as final" at end-of-iteration gate
+    | "fallback_summary_delivered",                  // universal fallback per always-deliver.md
   "final_docx_path": null | "<absolute path in user output folder>", // owner: memo Phase 11
 
   "attempts": {                                     // owner: memo/continue (retry-budget persistence)

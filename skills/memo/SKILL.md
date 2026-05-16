@@ -606,13 +606,46 @@ For each iteration N (1 to max_iterations):
    ```
    If invalid, re-dispatch `revision-mediator` once with the validation errors and require it to repair only `state.json` / `reviews/v<N>-mediator.md`. If state is still invalid, set `current_phase = failed` only if `state.json` is parseable enough to update safely; otherwise stop and surface "state.json corrupted; manual intervention required".
 
-5. Re-read `state.json` to learn the mediator's verdict:
-   - `final_status = approved_on_v<N>` and `current_phase = client_readiness` → Go to Phase 10.
-   - `current_phase = revision_loop` and `current_iteration` advanced by mediator → dispatch `memo-writer` for v<new_iteration> (it reads `drafts/v<N>.md` + `reviews/v<N>-mediator.md` + changelog + state; also pass `research/*.md` if mediator instructions mention citations, unsupported claims, source drift, currency, or Sources section fixes; writes `drafts/v<new>.md`, appends to changelog). Loop.
-   - `final_status = forced_exit_on_v<N>_with_remaining_issues` and `current_phase = client_readiness` → Go to Phase 10.
+5. Re-read `state.json` to learn the mediator's verdict.
    Print a progress update after mediator: mediator path, verdict, blocking issue count, next iteration or client-readiness.
 
+6. **End-of-iteration gate (user control point).** Decision depends on verdict + remaining budget:
+
+   **6a. Verdict = `approved_on_v<N>` (mediator approved current draft):**
+   - No gate. The user already wanted approval; mediator just confirmed it. Go to Phase 10 inline.
+
+   **6b. Verdict = `needs_revision` AND `current_iteration <= config.max_iterations` (another iteration would run):**
+   - Skip this gate if `config.max_iterations == 1` (Quick mode — no further iteration possible anyway; mediator should have written `forced_exit_on_v1` in this case, which falls to 6c).
+   - Otherwise, print a one-paragraph chat summary: iteration N completed, top reviewer scores (e.g. `logic 86 / clarity 72 / style 84 ✓ / citations 92 ✓ / counterargs 78`), blocking issue count from mediator, current_draft_path, mediator report path.
+   - Call AskUserQuestion (1 question):
+     - `question`: "Iteration <N> done — <X> blocking issues remain. Continue?" (RU: "Итерация <N> завершена — осталось <X> блокирующих замечаний. Продолжать?")
+     - `header`: "Iter <N> done" (≤12 chars)
+     - `multiSelect`: false
+     - `options`:
+       - label: "Continue iter <N+1>", description: "Run another revision pass per mediator instructions."
+       - label: "Accept v<N> as final", description: "Stop revision here. Skip remaining iterations; go directly to client-readiness review."
+   - Branch on answer:
+     - **Continue iter N+1** → write `state.json.revision_gate_choice = "continue"`, append `revision_gate_continue` event. Proceed to step 7 (dispatch memo-writer for v<N+1>).
+     - **Accept v<N> as final** → write `state.json.revision_gate_choice = "accepted_early"`, `state.json.final_status = "accepted_early_on_v<N>"`, `state.json.current_phase = client_readiness`. Append `revision_gate_accept_early` event. Inline continue to Phase 10.
+
+   **6c. Verdict = `forced_exit_on_v<N>_with_remaining_issues` (loop exhausted with blockers):**
+   - Print a one-paragraph summary: forced exit reason, remaining blocker count, current_draft_path, mediator report path.
+   - Call AskUserQuestion (1 question):
+     - `question`: "Revision loop exhausted — <X> blockers unresolved on v<N>. Proceed?" (RU: "Цикл ревизии исчерпан — <X> замечаний на v<N> не закрыты. Дальше?")
+     - `header`: "Loop done" (≤12 chars)
+     - `multiSelect`: false
+     - `options`:
+       - label: "Continue to client-readiness", description: "Run final client-readiness review on v<N> with unresolved-blockers banner."
+       - label: "Export as-is now", description: "Skip client-readiness. Export immediately with the reviewer-notes-unresolved banner."
+   - Branch on answer:
+     - **Continue to client-readiness** → write `state.json.client_readiness_gate_choice = "continue"`, append event. Inline continue to Phase 10.
+     - **Export as-is now** → write `state.json.client_readiness_gate_choice = "skip_polish"`, `state.json.current_phase = export`. Append `client_readiness_skipped` event. Inline jump to Phase 11 (skip Phase 10 entirely). The forced-exit banner from mediator is already in `state.json.fallback_banners[]` per always-deliver matrix.
+
+7. **Loop continuation** (only reached from 6b "Continue iter N+1"). Dispatch `memo-writer` for v<new_iteration> (it reads `drafts/v<N>.md` + `reviews/v<N>-mediator.md` + changelog + state; also pass `research/*.md` if mediator instructions mention citations, unsupported claims, source drift, currency, or Sources section fixes; writes `drafts/v<new>.md`, appends to changelog). Go back to step 1.
+
 Do not increment `current_iteration` from main session after reviewer dispatch; that's mediator's responsibility (preventing double-increment races).
+
+If `AskUserQuestion` is unavailable in the host, log a warning to `events.jsonl` and proceed automatically: 6b defaults to "Continue iter N+1", 6c defaults to "Continue to client-readiness". This preserves backward-compatible behavior of pre-0.0.16.
 
 ## Phase 10 — Client-readiness gate
 
@@ -633,10 +666,26 @@ It writes `reviews/final-client-readiness.json`.
 
 Read the JSON:
 - `verdict = client_ready` → set `state.json.client_readiness` summary including `blocking_issues = []` and continue to export.
-- `verdict = needs_final_polish` → read `state.json.attempts.client_readiness_polish`.
-  - If it is `0`: atomically increment it to `1`, set `attempts.client_readiness_polish_pending_review = true`, append `client_readiness_polish_started` to `events.jsonl`, dispatch `memo-writer` once for a final polish pass. It reads the final draft and `reviews/final-client-readiness.json`, writes `drafts/v<N>-client-ready.md`, updates `current_draft_path`, and appends to `changelog.md`. Re-run `client-readiness-reviewer` once, then set `attempts.client_readiness_polish_pending_review = false`.
-  - If it is already `>= 1` and `attempts.client_readiness_polish_pending_review = true`: do NOT mark manual review yet. Re-run `client-readiness-reviewer` once against `state.json.current_draft_path`, then set `attempts.client_readiness_polish_pending_review = false`.
-  - If it is already `>= 1` and `attempts.client_readiness_polish_pending_review = false`, or the post-polish client-readiness review is still not ready: set `state.json.final_status = manual_review_required_on_v<N>`, set `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues` from the reviewer JSON, and proceed to export with a warning banner.
+
+- `verdict = needs_final_polish`:
+  - **First check the mode config and gate.** If `config.client_polish_enabled == false` (Quick mode), skip polish entirely. Set `state.json.final_status = manual_review_required_on_v<N>`, set `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues` from the reviewer JSON, proceed to export with banner. (No user gate here — Quick mode users opted out of polish at Phase 1.5.)
+  - **Pre-polish gate (when polish is enabled).** If `state.json.attempts.client_readiness_polish == 0`:
+    1. Print a one-paragraph summary of client-readiness verdict: blocker count, top categories from JSON, current_draft_path, reviewer report path.
+    2. Call AskUserQuestion (1 question):
+       - `question`: "Client-readiness: needs final polish — <X> blocking issues. Apply polish pass?" (RU: "Клиент-готовность: нужна финальная полировка — <X> замечаний. Применить?")
+       - `header`: "Polish?" (≤12 chars)
+       - `multiSelect`: false
+       - `options`:
+         - label: "Apply polish pass", description: "Run memo-writer for one polish pass + re-run client-readiness review."
+         - label: "Export as-is", description: "Skip polish. Export with reviewer blockers in appendix and warning banner."
+    3. Branch:
+       - **Apply polish pass** → write `state.json.polish_gate_choice = "apply"`, append event. Then proceed with the existing polish flow: atomically increment `attempts.client_readiness_polish` to `1`, set `attempts.client_readiness_polish_pending_review = true`, append `client_readiness_polish_started` to `events.jsonl`, dispatch `memo-writer` once for the polish pass (reads the final draft and `reviews/final-client-readiness.json`, writes `drafts/v<N>-client-ready.md`, updates `current_draft_path`, appends to `changelog.md`). Re-run `client-readiness-reviewer` once, then set `attempts.client_readiness_polish_pending_review = false`.
+       - **Export as-is** → write `state.json.polish_gate_choice = "skip"`, set `state.json.final_status = manual_review_required_on_v<N>`, preserve `blocking_issues` in `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues`, append `polish_skipped_by_user` event. Proceed to export with banner. Do NOT increment `attempts.client_readiness_polish` (user opted out before consuming the budget).
+    4. If AskUserQuestion is unavailable, default to "Apply polish pass" (preserves pre-0.0.16 behavior).
+  - **Polish already attempted.** If `attempts.client_readiness_polish >= 1`:
+    - If `attempts.client_readiness_polish_pending_review == true`: do NOT mark manual review yet. Re-run `client-readiness-reviewer` once against `state.json.current_draft_path`, then set `attempts.client_readiness_polish_pending_review = false`.
+    - If `attempts.client_readiness_polish_pending_review == false` AND `config.max_client_polish > attempts.client_readiness_polish` (Deep mode allows up to 2 polish passes): repeat the pre-polish gate with the second-pass framing. Otherwise (Standard mode's single polish budget consumed, or post-polish review still not ready): set `state.json.final_status = manual_review_required_on_v<N>`, set `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues` from the reviewer JSON, and proceed to export with a warning banner.
+
 - `verdict = manual_review_required` → set `state.json.final_status = manual_review_required_on_v<N>`, preserve `blocking_issues` in both `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues`, proceed to export with a warning banner, and surface the reviewer blockers in the final chat summary.
 
 Update `state.json.current_phase = export`.

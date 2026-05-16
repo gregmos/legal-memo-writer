@@ -197,7 +197,12 @@ Read `current_iteration = N`. Check which reviewer outputs exist (`reviews/vN-<r
   If `python3` is unavailable, try `python`. If invalid reviewers remain, re-dispatch only those reviewers once, after atomically incrementing `state.json.attempts.reviewer_json_retry["v<N>-<reviewer>"]` and appending `reviewer_json_retry_started` to `events.jsonl`. Validate again. If still invalid, run the same validator with `--write-failure-stubs`, then validate once more.
 - If all five valid JSON files exist but `reviews/vN-mediator.md` missing → dispatch mediator.
 - After mediator returns, validate `state.json` with `scripts/validate_state.py`. If invalid, re-dispatch mediator once with the validation errors; if still invalid, stop and surface "state.json corrupted; manual intervention required".
-- If mediator already finished → re-read state to see whether to loop (next iteration via memo-writer) or proceed to export.
+- If mediator already finished and `state.json.revision_gate_choice` is missing for this iteration → the user is resuming at an end-of-iteration gate (or forced-exit gate) that hasn't been answered yet. Run the same Phase 9 step 6 logic from `skills/memo/SKILL.md`:
+  - If verdict = `approved_on_v<N>` → no gate, jump to Phase 10.
+  - If verdict = `needs_revision` AND `config.max_iterations > 1` AND N < max_iterations → run step 6b AskUserQuestion gate (Continue iter N+1 / Accept v<N>).
+  - If verdict = `forced_exit_on_v<N>_with_remaining_issues` OR N == max_iterations → run step 6c AskUserQuestion gate (Continue to client-readiness / Export as-is now).
+  - Branch per user answer exactly as documented in `memo` SKILL Phase 9 step 6.
+- If mediator already finished AND `state.json.revision_gate_choice` is set → re-read state.json, follow the recorded choice (continue to next iteration or proceed to client-readiness or export).
 
 Continue the loop per the `memo` skill Phase 9 logic.
 
@@ -205,10 +210,13 @@ Continue the loop per the `memo` skill Phase 9 logic.
 
 If `reviews/final-client-readiness.json` is missing, dispatch `client-readiness-reviewer` with the same expanded context as the `memo` skill: final draft, `state.json`, latest mediator report if present, intake files, `research/source-pack.md`, `research/research-sufficiency.json`, `research/currency-report.md`, and house style.
 
-If verdict is `needs_final_polish`, check `state.json.attempts.client_readiness_polish`:
-- If `0`, atomically increment to `1`, set `attempts.client_readiness_polish_pending_review = true`, append `client_readiness_polish_started` to `events.jsonl`, dispatch `memo-writer` once for final polish, and re-run client-readiness reviewer once. After the re-run, set `attempts.client_readiness_polish_pending_review = false`.
-- If `>= 1` and `attempts.client_readiness_polish_pending_review = true`, do NOT mark manual review yet. Re-run client-readiness reviewer once against `state.json.current_draft_path`, then set `attempts.client_readiness_polish_pending_review = false`.
-- If `>= 1` and `attempts.client_readiness_polish_pending_review = false`, or the post-polish client-readiness review is still not ready, set `final_status = manual_review_required_on_v<N>`, preserve reviewer `blocking_issues` in `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues`, and proceed to export with warning status.
+If verdict is `needs_final_polish`, check `state.json.attempts.client_readiness_polish` AND `state.json.polish_gate_choice`:
+- If `config.client_polish_enabled == false` (Quick mode) → no gate, no polish. Set `final_status = manual_review_required_on_v<N>`, preserve blockers, proceed to export.
+- If `attempts.client_readiness_polish == 0` AND `polish_gate_choice` is missing → user is resuming at the pre-polish gate. Run the same Phase 10 pre-polish gate logic from `skills/memo/SKILL.md`: AskUserQuestion "Apply polish pass / Export as-is", then branch per answer.
+- If `polish_gate_choice == "apply"` AND `attempts.client_readiness_polish == 0` → execute polish: atomically increment to `1`, set `attempts.client_readiness_polish_pending_review = true`, append `client_readiness_polish_started` to `events.jsonl`, dispatch `memo-writer` once for final polish, and re-run client-readiness reviewer once. After the re-run, set `attempts.client_readiness_polish_pending_review = false`.
+- If `polish_gate_choice == "skip"` → no polish. Set `final_status = manual_review_required_on_v<N>`, preserve blockers, proceed to export.
+- If `attempts.client_readiness_polish >= 1` and `attempts.client_readiness_polish_pending_review == true`, do NOT mark manual review yet. Re-run client-readiness reviewer once against `state.json.current_draft_path`, then set `attempts.client_readiness_polish_pending_review = false`.
+- If `attempts.client_readiness_polish >= 1` and `attempts.client_readiness_polish_pending_review == false`, or the post-polish client-readiness review is still not ready, set `final_status = manual_review_required_on_v<N>`, preserve reviewer `blocking_issues` in `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues`, and proceed to export with warning status.
 
 If verdict is `manual_review_required`, preserve the blockers in `state.json.client_readiness.blocking_issues` and `state.json.remaining_blocking_issues`, set `final_status = manual_review_required_on_v<N>`, and proceed to export with warning status. Set `current_phase = export`.
 

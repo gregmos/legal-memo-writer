@@ -1,7 +1,7 @@
 {
   "name": "legal-memo-writer",
   "description": "Multi-agent legal memo drafting with intake questions, legal research, source pack, counterargument review, client-readiness review, and docx export.",
-  "version": "0.0.15",
+  "version": "0.0.16",
   "author": {
     "name": "Grigorii Moskalev"
   }
