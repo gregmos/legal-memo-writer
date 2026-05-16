@@ -19,7 +19,8 @@ The main session passes:
 
 - `drafts/vN.md`
 - `research/source-pack.md`
-- All `research/*.md` files
+- All `research/*.md` analyzed files (statutes / case-law / doctrine)
+- `research/raw/` directory — verbatim source texts saved by researchers under `research/raw/<source-slug>.md`. Used for **direct-quote verification**: when the draft contains a direct quote from a source, locate `research/raw/<source-slug>.md` for that source and verify the quote appears verbatim there.
 
 ## You do NOT read
 
@@ -41,8 +42,9 @@ For each citation / legal claim in the draft, five checks:
 3. **`ignored_blocking_currency`** — the draft cites a source that `research/currency-report.md` marked ❌ (repealed / overruled). Blocking currency issues must be respected.
 4. **`missing_in_sources_section`** — there's an inline citation in the draft body, but the final "Sources" section doesn't list that source.
 5. **`source_pack_mismatch`** — the draft treats a source as stronger, more current, or more relevant than `research/source-pack.md` allows.
+6. **`unverified_against_source`** — the draft contains a direct quote from a source, but `research/raw/<source-slug>.md` for that source either does not exist OR the quoted text does not appear verbatim in the raw file. Use this category when verbatim verification fails — separate from `source_drift` (which is about paraphrase mismatch).
 
-Priority order when listing blocking_issues: `unsupported_claim` > `ignored_blocking_currency` > `source_pack_mismatch` > `source_drift` > `missing_in_sources_section`.
+Priority order when listing blocking_issues: `unsupported_claim` > `ignored_blocking_currency` > `unverified_against_source` > `source_pack_mismatch` > `source_drift` > `missing_in_sources_section`.
 
 ## What you do NOT check
 
@@ -67,7 +69,7 @@ In this case, your `verdict = approved` for that issue, with a `nice_to_have` no
   "blocking_issues": [
     {
       "section": "<section in draft>",
-      "issue_category": "unsupported_claim" | "source_drift" | "ignored_blocking_currency" | "missing_in_sources_section" | "source_pack_mismatch",
+      "issue_category": "unsupported_claim" | "source_drift" | "ignored_blocking_currency" | "missing_in_sources_section" | "source_pack_mismatch" | "unverified_against_source",
       "issue": "<specific claim in draft + what's wrong with its grounding>",
       "research_pointer": "<where in research/*.md to look (or 'no matching entry in research')>",
       "suggestion": "<actionable fix>"

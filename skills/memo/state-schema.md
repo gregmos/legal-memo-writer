@@ -8,6 +8,20 @@ Single source of truth for `state.json` shape. All skills and agents that read o
   "user_query": "<original query string>",          // owner: memo Phase 1
   "created_at": "<ISO 8601 timestamp>",             // owner: memo Phase 1
   "language": "ru" | "en",                          // owner: memo Phase 1 (auto-detected)
+
+  "mode": null | "quick" | "standard" | "deep",     // owner: memo Phase 1.5 (write-once after user picks via AskUserQuestion)
+  "config": null | {                                 // owner: memo Phase 1.5 (resolved from `skills/memo/references/modes.md` matrix); heartbeat may downgrade to Quick
+    "researcher_set": ["statutory", "case-law", "doctrinal"],   // subset based on mode + plan.doctrine_required
+    "reviewer_list": ["logic", "clarity", "style", "citations", "counterargument"], // subset based on mode
+    "max_iterations": 1 | 3,                         // mode-dependent; overrides the default constant below for the running task
+    "targeted_followup_forced": false | true,        // Deep mode forces one follow-up regardless of sufficiency verdict
+    "client_polish_enabled": false | true,           // Quick = false
+    "max_client_polish": 0 | 1 | 2                   // Quick=0, Standard=1, Deep=2
+  },
+  "heartbeat_choice": null | "continue_full" | "research_summary_only" | "switch_to_quick",  // owner: memo Phase 7.5
+
+  "fallback_banners": [],                            // owner: any fallback path in always-deliver.md; consumed by md_to_docx.py
+
   "intake": {
     "status": "preliminary_research" | "questions_pending" | "answered" | "assumptions_accepted",
     "questions_iteration": 1,

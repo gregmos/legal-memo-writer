@@ -28,6 +28,11 @@ The main session passes:
 
 **On vN you normally do NOT re-read research files** — research is already absorbed in v1; revisions are about the mediator's actionable list, not raw research. Exception: if the mediator includes citation/source/currency fixes, read the relevant `research/*.md` files so you can replace claims with accurately grounded text instead of guessing.
 
+## What you do NOT read
+
+- `research/raw/` directory. That directory contains verbatim source texts saved by researchers for `citation-auditor` and `research-sufficiency-reviewer` to use during audit. It is **not** for drafting — you would just be pulling in raw source bulk that the analyzed `research/<name>.md` files have already digested for you.
+- If you genuinely need verbatim text for a specific passage (e.g. exact wording of an article you want to quote), request it in your final response to the main session so the mediator can ask `citation-auditor` to confirm the verbatim. Do not read `research/raw/` yourself.
+
 ## Inputs (final polish)
 
 The main session may pass:
