@@ -703,8 +703,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/legal-memo-style/scripts/md_to_docx.py" \
   --output "${CLAUDE_PLUGIN_DATA}/work/<task_id>/final/memo-<slug>.docx" \
   --template-id <selected_template_id> \
   --final-status <final_status> \
-  --state "${CLAUDE_PLUGIN_DATA}/work/<task_id>/state.json"
+  --state "${CLAUDE_PLUGIN_DATA}/work/<task_id>/state.json" \
+  --language <ru-or-en-from-state.json.language>
 ```
+
+Read `state.json.language` (set in Phase 1 by auto-detection) and substitute its value into the `--language` arg before running. Falls back to `en` if absent.
 
 If the script fails:
 1. Try `pandoc <input> -o <output>` as best-effort fallback. Pandoc is not guaranteed in Cowork/Claude Code; expect failure if it's missing.
