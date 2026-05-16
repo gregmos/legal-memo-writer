@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "legal-data-hunter": {
+      "type": "http",
+      "url": "https://legaldatahunter.com/mcp"
+    },
+    "courtlistener": {
+      "type": "http",
+      "url": "https://mcp.courtlistener.com"
+    }
+  }
+}
