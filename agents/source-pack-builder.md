@@ -17,7 +17,8 @@ The main session passes:
 - `research/statutes.md`
 - `research/case-law.md`
 - `research/doctrine.md` if present
-- `research/currency-report.md`
+- `research/currency-report.md` — human-readable view
+- `research/currency-report.json` — machine-readable view (canonical source for status enum). If present, this is authoritative for the `Currentness` column below. The markdown file is for human review only; do NOT parse its emoji bullets when the JSON exists. If the JSON is missing (legacy task), fall back to parsing the markdown by the canonical emoji→status mapping documented in `agents/currency-checker.md` (✅→current, ⚠️→outdated_but_usable, ❌→do_not_use, 🔍→manual_check).
 - `research/research-sufficiency.json`
 - Working directory path
 
@@ -62,7 +63,8 @@ Writers must cite from this table where possible. Citation auditor treats this p
 
 ## Rules
 
-- If `currency-report.md` marks a source as repealed, overruled, or do-not-use, preserve it in the pack but mark `Use in memo = do_not_use`.
+- For the `Currentness` column: look up each source in `research/currency-report.json` (preferred) by matching either the source slug or the source title; copy the `status` field directly. If the JSON is unavailable, parse the markdown bullets using the canonical emoji→status mapping (✅→current, ⚠️→outdated_but_usable, ❌→do_not_use, 🔍→manual_check). Do NOT invent a status if neither file lists the source — mark it `manual_check` with a note in `## Sources requiring manual verification`.
+- If a source's currency status is `do_not_use` (was repealed, overruled, or replaced), preserve it in the pack but mark `Use in memo = do_not_use`.
 - Keep direct quotes <=15 words.
 - Do not invent missing provision numbers or citations.
 - Prefer official source titles and URLs from research files.

@@ -4,7 +4,7 @@ md_to_docx.py - convert a legal memo markdown draft to a docx.
 
 Used by legal-memo-writer plugin at the export phase. Invoked from the main
 session via Bash. Reads markdown and applies the visual spec from
-skills/legal-memo-style/SKILL.md (Arial 12pt body, 11pt italic blockquote,
+skills/legal-memo-docx-render/SKILL.md (Arial 12pt body, 11pt italic blockquote,
 1-inch margins, single line spacing + 6pt after, justified, bold-paragraph
 headings without Word Heading styles, blockquote left-indent).
 
@@ -35,7 +35,7 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Visual spec (from skills/legal-memo-style/SKILL.md, ported from the user's
+# Visual spec (from skills/legal-memo-docx-render/SKILL.md, ported from the user's
 # Cowork org-level skill `legal-memo-style 11.skill`).
 # ---------------------------------------------------------------------------
 
@@ -45,6 +45,14 @@ FONT_SIZE_QUOTE = Pt(11)
 MARGIN = Inches(1)                  # 1440 twips, 2.54 cm
 INDENT_FIRSTLINE_BODY = Cm(1.11)    # 630 DXA
 INDENT_LEFT_BLOCKQUOTE = Cm(1.59)   # 900 DXA
+INDENT_LEFT_LIST = Cm(1.27)         # 720 DXA = 0.5" — bullets indented deeper
+                                    # than body first-line so the marker sits
+                                    # at ~360 DXA (left - inherited hanging=360)
+                                    # and the wrapped text starts at 720 DXA.
+                                    # Matches the canonical Cowork visual spec
+                                    # (manual Word UI override on the source
+                                    # docx: <w:ind w:left="720"/> + tab clear
+                                    # at 360 on top of the ListBullet style).
 SPACING_BEFORE = Pt(0)
 SPACING_AFTER = Pt(6)               # 120 DXA = 6pt after
 LINE_SPACING_VALUE = 1.0            # single
@@ -183,10 +191,62 @@ def add_blockquote_paragraph(doc, text):
     render_inline(p, text, italic_outer=True, size=FONT_SIZE_QUOTE)
 
 
+def _clear_inherited_tab(paragraph, pos_dxa):
+    """Insert <w:tabs><w:tab w:val="clear" w:pos="N"/></w:tabs> into pPr.
+
+    Used after a list paragraph has its left indent overridden, to clear the
+    tab stop inherited from the ListBullet / ListNumber style at the default
+    marker position. Without the clear, some Word versions tab the wrapped
+    line back to the old position instead of honoring the new w:ind.
+    """
+    pPr = paragraph._element.get_or_add_pPr()
+    tabs = OxmlElement("w:tabs")
+    tab = OxmlElement("w:tab")
+    tab.set(qn("w:val"), "clear")
+    tab.set(qn("w:pos"), str(pos_dxa))
+    tabs.append(tab)
+    # OOXML schema: w:tabs must appear before w:ind / w:jc inside w:pPr.
+    ind = pPr.find(qn("w:ind"))
+    if ind is not None:
+        ind.addprevious(tabs)
+    else:
+        pPr.append(tabs)
+
+
+def _disable_contextual_spacing(paragraph):
+    """Insert <w:contextualSpacing w:val="0"/> into pPr.
+
+    Word's built-in ListBullet / ListNumber styles set contextualSpacing=true
+    in styles.xml, which suppresses the paragraph after-spacing between
+    consecutive list items of the same style (the "Don't add space between
+    paragraphs of the same style" checkbox in the Paragraph dialog). We
+    override at paragraph level to restore the 6pt after-spacing between
+    items, matching the canonical Cowork visual spec.
+    """
+    pPr = paragraph._element.get_or_add_pPr()
+    cs = OxmlElement("w:contextualSpacing")
+    cs.set(qn("w:val"), "0")
+    # OOXML schema: contextualSpacing comes after w:ind and before w:jc.
+    jc = pPr.find(qn("w:jc"))
+    if jc is not None:
+        jc.addprevious(cs)
+    else:
+        pPr.append(cs)
+
+
 def add_list_item(doc, text, *, ordered):
     style_name = "List Number" if ordered else "List Bullet"
     p = doc.add_paragraph(style=style_name)
-    _apply_std_paragraph_format(p, first_line_indent=Cm(0))
+    # Both bullets and numbered lists get the same paragraph-level overrides:
+    # left=720 DXA (deeper than body first-line indent), tab clear at 360 so
+    # wrapped text snaps to the new indent, justified alignment, and
+    # contextualSpacing=false so the 6pt after-spacing applies between items.
+    # first_line_indent is NOT set: the hanging=360 inherited from the
+    # ListBullet / ListNumber style stays in effect, so the marker (• or 1.)
+    # sits at left-hanging = 360 DXA and wrapped text starts at 720 DXA.
+    _apply_std_paragraph_format(p, left_indent=INDENT_LEFT_LIST)
+    _clear_inherited_tab(p, 360)
+    _disable_contextual_spacing(p)
     render_inline(p, text)
 
 
@@ -194,7 +254,7 @@ def add_list_item(doc, text, *, ordered):
 # Warning banner (for non-approved memos)
 # ---------------------------------------------------------------------------
 
-def add_warning_banner(doc, final_status, remaining_issues):
+def add_warning_banner(doc, final_status, remaining_issues, fallback_banners=None):
     table = doc.add_table(rows=1, cols=1)
     table.alignment = WD_ALIGN_PARAGRAPH.CENTER
     cell = table.cell(0, 0)
@@ -205,21 +265,61 @@ def add_warning_banner(doc, final_status, remaining_issues):
     _apply_std_paragraph_format(title_p, first_line_indent=Cm(0))
     title_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
     title = "MANUAL REVIEW REQUIRED"
+    subtitle_text = (
+        "Manual check recommended before relying on this memorandum. "
+        f"Final status: {final_status}."
+    )
     if final_status and final_status.startswith("forced_exit"):
         title = "REVIEWER NOTES NOT FULLY RESOLVED"
     elif final_status and final_status.startswith("accepted_early"):
         title = "USER ACCEPTED EARLY — REMAINING ISSUES"
+    elif final_status == "fallback_research_summary_delivered":
+        # Phase 8 branch A — user picked research-summary mode via heartbeat.
+        # Memo intentionally skipped IRAC analysis (no Risk, no Recommendation),
+        # but the document IS a deliverable.
+        title = "RESEARCH SUMMARY MODE — IRAC ANALYSIS NOT PERFORMED"
+    elif final_status == "fallback_summary_delivered":
+        # Universal catastrophic fallback per always-deliver.md. In practice this
+        # path writes fallback-summary.md (not memo-<slug>.docx) and so doesn't
+        # normally invoke md_to_docx.py — but if a future code path does call
+        # the renderer with this status, the banner accurately labels it.
+        title = "PIPELINE FALLBACK — RESEARCH INCOMPLETE"
+    elif final_status and final_status.startswith("approved") and fallback_banners:
+        # Approved memo with pipeline fallbacks (e.g. MCP rate-limited, partial
+        # coverage). The reviewer loop approved the content; the banner is a
+        # disclosure about *how* the research was conducted, not a warning that
+        # the analysis is incomplete. Use a softer, accurate title.
+        title = "PIPELINE FALLBACK NOTICE — REVIEW BEFORE CLIENT USE"
+        subtitle_text = (
+            "The memo was approved by the reviewer loop. The fallbacks listed below "
+            "applied during research — verify items tagged in research files (e.g. "
+            "[rate-limited fallback]) before client delivery. "
+            f"Final status: {final_status}."
+        )
     title_run = title_p.add_run(title)
     _style_run(title_run, bold=True)
 
     subtitle_p = cell.add_paragraph()
     _apply_std_paragraph_format(subtitle_p, first_line_indent=Cm(0))
     subtitle_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    subtitle_run = subtitle_p.add_run(
-        "Manual check recommended before relying on this memorandum. "
-        f"Final status: {final_status}."
-    )
+    subtitle_run = subtitle_p.add_run(subtitle_text)
     _style_run(subtitle_run)
+
+    # Fallback banners: rendered above the per-issue list because they often
+    # describe pipeline-level downgrades (research-summary, MCP unavailable,
+    # rate-limited fallback) that contextualize WHY there are remaining issues.
+    if fallback_banners:
+        heading_p = cell.add_paragraph()
+        _apply_std_paragraph_format(heading_p, first_line_indent=Cm(0))
+        heading_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        h_run = heading_p.add_run("Pipeline fallbacks that fired during this run:")
+        _style_run(h_run, bold=True)
+        for banner in fallback_banners:
+            li = cell.add_paragraph(style="List Bullet")
+            _apply_std_paragraph_format(li, first_line_indent=Cm(0))
+            li.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            run = li.add_run(str(banner))
+            _style_run(run)
 
     if remaining_issues:
         heading_p = cell.add_paragraph()
@@ -235,6 +335,25 @@ def add_warning_banner(doc, final_status, remaining_issues):
             _style_run(run)
 
     doc.add_paragraph()  # spacer after banner
+
+
+def extract_fallback_banners(state_path):
+    """Read state.json.fallback_banners[]. Returns [] when state is unreachable
+    or the field is empty/missing. Each banner is a free-text string written by
+    a fallback path in always-deliver.md (heartbeat research-summary, MCP
+    unavailable, MCP rate-limited, drafting-failed-to-summary, etc.).
+    """
+    if not state_path or not Path(state_path).exists():
+        return []
+    try:
+        state = json.loads(Path(state_path).read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    banners = state.get("fallback_banners")
+    if not isinstance(banners, list):
+        return []
+    # Coerce each to string and drop empties/non-strings defensively.
+    return [str(b) for b in banners if isinstance(b, (str, int, float)) and str(b).strip()]
 
 
 def summarize_issue(issue):
@@ -471,53 +590,16 @@ def render_inline(paragraph, text, *, bold_outer=False, italic_outer=False, size
 
 
 # ---------------------------------------------------------------------------
-# Language-specific typography (conservative substitutions)
+# Language-specific typography (currently a no-op)
 # ---------------------------------------------------------------------------
 
 def apply_locale_typography(md_text, language):
-    """Light, conservative locale substitutions BEFORE rendering.
+    """Reserved hook for future locale-specific typography substitutions.
 
-    Currently a no-op except for `ru`, where we apply two substitutions:
-    - en-dash between non-space chars and letters around dashes -> em-dash
-      with surrounding spaces (Russian convention prefers em-dash).
-    - straight double quotes around bodies of words -> guillemets «...».
-      Skip if line is a blockquote / code-fence / table.
-
-    Kept conservative — we only touch outside-code-context text. If
-    in doubt, the substitution is skipped.
+    The plugin is English-only as of 0.0.35 and this function is a no-op;
+    it remains here to keep the CLI shape stable for downstream callers.
     """
-    if language != "ru":
-        return md_text
-
-    out_lines = []
-    in_code_fence = False
-    for line in md_text.splitlines():
-        # Skip transformations inside fenced code blocks
-        if line.strip().startswith("```"):
-            in_code_fence = not in_code_fence
-            out_lines.append(line)
-            continue
-        if in_code_fence:
-            out_lines.append(line)
-            continue
-
-        # Skip blockquote / table / heading prefixes — preserve verbatim
-        # for blockquotes (per user's spec: quotes stay in source language).
-        if line.lstrip().startswith((">", "|", "#")):
-            out_lines.append(line)
-            continue
-
-        new = line
-        # En-dash -> em-dash with spaces (Russian convention)
-        new = re.sub(r"(\S) - (\S)", r"\1 — \2", new)  # space-hyphen-space -> em-dash
-        new = re.sub(r"(\S)–(\S)", r"\1—\2", new)   # en-dash -> em-dash
-        # Straight double quotes -> guillemets, conservative: only when
-        # enclosing one or more word-chars including punctuation.
-        new = re.sub(r'"([^"\\n]{1,200}?)"', r"«\1»", new)
-
-        out_lines.append(new)
-
-    return "\n".join(out_lines)
+    return md_text
 
 
 # ---------------------------------------------------------------------------
@@ -534,8 +616,8 @@ def main():
     parser.add_argument(
         "--language",
         default="en",
-        choices=("en", "ru"),
-        help="Memo language. Controls locale typography (en/ru).",
+        choices=("en",),
+        help="Memo language. Plugin is English-only as of 0.0.35; flag kept for CLI stability.",
     )
     args = parser.parse_args()
 
@@ -554,9 +636,11 @@ def main():
     apply_page_setup(doc)
     configure_default_style(doc)
 
-    if args.final_status and not args.final_status.startswith("approved"):
+    fallback_banners = extract_fallback_banners(args.state)
+    needs_banner = (args.final_status and not args.final_status.startswith("approved")) or bool(fallback_banners)
+    if needs_banner:
         remaining = extract_remaining_issues(args.state)
-        add_warning_banner(doc, args.final_status, remaining)
+        add_warning_banner(doc, args.final_status, remaining, fallback_banners=fallback_banners)
 
     render_markdown(doc, md_text)
 

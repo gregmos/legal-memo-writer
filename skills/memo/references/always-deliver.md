@@ -16,7 +16,7 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 
 | Failure | Fallback | Banner |
 |---|---|---|
-| User picks Other in AskUserQuestion | Treat as Standard. Print one-line note "Defaulting to Standard mode; rerun with /memo if you wanted Quick or Deep." | none |
+| User picks Other in AskUserQuestion | Treat as Full. Print one-line note "Defaulting to Full mode; rerun with /memo if you wanted Brief." | none |
 
 ### Phase 5 (parallel research) — MCP outage
 
@@ -25,6 +25,7 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 | Legal Data Hunter + CourtListener both unavailable | Researchers proceed in WebFetch-only mode against vetted official portals (`eur-lex.europa.eu`, `courtlistener.com` public pages, `edpb.europa.eu`, national gazettes if mentioned in plan). Each research file's final line records `mcp_status: unavailable`. | "MCP servers unavailable. Research conducted via public WebFetch only — verify against primary sources before client use." |
 | One MCP unavailable, the other up | Continue with the available MCP. Note the gap in each research file. | "Partial MCP coverage — only <available> was reachable." |
 | Both MCP up but WebFetch also failing to a critical portal | Continue with what is reachable. Researcher writes explicit `gap:` entry per missing portal. | "Some primary sources were unreachable; gaps disclosed in research files." |
+| MCP returns explicit rate-limit / 429 / quota-exceeded error mid-run | Researcher invokes the rate-limit fallback per `skills/memo/references/mcp-ratelimit-contract.md`: stops calling the throttled MCP, switches to WebSearch + WebFetch on canonical URLs, marks each fallback item `[rate-limited fallback]` in the research file, appends a `mcp_ratelimit_fallback` event to `events.jsonl`. The orchestrator reads those events at the end of Phase 5 and pushes the banner. | "Some research sources were retrieved via web-search fallback due to MCP service rate limits. Items tagged `[rate-limited fallback]` in research files; verify the canonical URLs in the source pack." |
 
 ### Phase 6 (research sufficiency)
 
@@ -33,7 +34,7 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 | Verdict = `insufficient_for_client_ready_memo` and follow-up budget consumed | Proceed to drafting. Memo MUST contain a dedicated "Open questions / unverified facts" section listing what remains unanswered. | "Research sufficiency: insufficient. Open questions disclosed in section X — do not act on this memo without further investigation." |
 | `research-sufficiency-reviewer` itself crashes | Re-dispatch once with explicit error context. If second attempt fails, proceed as if verdict = insufficient (above). | "Research sufficiency review unavailable; defaulting to insufficient status." |
 
-### Phase 6 (currency check)
+### Phase 6.5 (currency check)
 
 | Failure | Fallback | Banner |
 |---|---|---|
@@ -46,13 +47,16 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 |---|---|---|
 | `source-pack-builder` fails or returns empty pack | Build a minimal source-pack from research file headings (one row per source headline + URL + tier from researcher markup); flag missing fields. | "Source pack incomplete; verify citations manually." |
 
-### Phase 7→8 heartbeat (user choice)
+### Phase 7→8 source-review checkpoint (user choice) — v0.0.43+
 
 | Choice | Action | Banner |
 |---|---|---|
-| "Continue full revision loop" | Proceed normally to Phase 8. | none |
-| "Stop and deliver research summary" | Single `memo-writer` pass with template-id `research-summary-only` (or fallback to `executive-brief`); skip Phase 9 + Phase 10; jump to Phase 11 export. | "Research summary mode — full IRAC analysis not performed per user choice. The memo reports findings only; legal conclusions are not validated through the revision loop." |
-| "Switch to Quick mode now" | Rewrite `state.json.config` to Quick values; log `mode_downgraded` event; proceed to Phase 8 normally. | none (Quick-mode banner if any other fallback fires later) |
+| User replies `continue` (or proceed/go/draft/yes/ok) | Set `current_phase = drafting`, proceed to Phase 8. | none |
+| User replies `cancel` (or stop/abort/no) | Set `current_phase = cancelled_by_user`. Work directory and source-pack preserved for later resume. | none |
+| Unparseable reply | Re-show the source-review checkpoint instructions. Do NOT advance. | none |
+| User does nothing | Pipeline waits. The assistant turn already ended at Phase 7.5; nothing happens until user replies. | none |
+
+(The v0.0.42 "Continue full loop / Research summary only" heartbeat AskUserQuestion was removed in v0.0.43 — the gate was unreliable post-parallel-Task per Anthropic issues #26805/#29773 family. Plain text checkpoint + explicit end-of-turn is the reliable mechanism. Research-summary mode was removed at the same time; the full pipeline is now the only path. The `templates/research-summary-only.md` file remains on disk as vestigial.)
 
 ### Phase 8 (drafting v1)
 
@@ -82,21 +86,31 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 | Failure | Fallback | Banner |
 |---|---|---|
 | `python3 md_to_docx.py` fails | Try `pandoc <input> -o <output>` as best-effort fallback. | none if pandoc succeeds |
-| Both python and pandoc fail | Deliver the markdown file as the final artifact: copy `drafts/v<N>-client-ready.md` (or latest available) to `<output>/<task_id>/memo-<slug>.md`. Update `state.json.final_docx_path` to the .md path. | "docx export failed — markdown file delivered. Convert manually with pandoc or save-as docx." |
-| Copy to user output folder fails (permissions) | Keep artifact in `${CLAUDE_PLUGIN_DATA}/work/<task_id>/final/` and surface its full path in chat as a clickable reference. | "Output folder not writable; final artifact remains in plugin data directory. Path: <full_path>." |
+| Both python and pandoc fail | Deliver the markdown file as the final artifact. **Source selection (deterministic):** (1) if `drafts/v<N>-client-ready.md` exists for the highest N, use that; (2) else use `state.json.current_draft_path` (which always points at the most recent `drafts/v<N>.md`); (3) else pick the highest-N file matching `drafts/v*.md`. Copy that file to `<work_dir>/memo-<slug>.md`. Update `state.json.final_docx_path` to the absolute path of the .md file. | "docx export failed — markdown file delivered. Convert manually with pandoc or save-as docx." |
+| Copy to user output folder fails (permissions) | Keep artifact in the resolved working directory (`<state.json.work_dir>/`, same folder used since Phase 1 — no separate "plugin data" location exists in v0.0.29+). Call `Read` on the final memo-<slug>.docx so Cowork inserts an artifact card for it; surface the work-directory path in chat as plain text. | "Output folder write failed; final artifact memo-<slug>.docx remains in working directory at <state.json.rel_work_dir>/. See the Read tool card above for clickable access." |
 
 ## Universal final fallback
 
 If a phase still cannot complete and none of the above applies:
 
-1. Write `${CLAUDE_PLUGIN_DATA}/work/<task_id>/final/fallback-summary.md` containing:
+1. Write `<state.json.work_dir>/fallback-summary.md` (the working directory used since Phase 1 — there is no separate plugin data directory in v0.0.29+) containing:
    - task_id, mode, last successful phase, current_phase, ISO timestamp
    - `state.json` snapshot (pretty-printed)
    - one-paragraph plain-text description of what was learned (use whatever survives in `research/`, `drafts/`, `reviews/`)
    - explicit list of what failed
-2. Copy that file to `<output>/<task_id>/fallback-summary.md`.
-3. Update `state.json.final_status = fallback_summary_delivered`.
-4. Print final progress block with the fallback path.
+2. Update `state.json.final_status = fallback_summary_delivered`.
+3. Make `fallback-summary.md` visible to Cowork: call the `Read` tool on `<state.json.work_dir>/fallback-summary.md` so Cowork's UI inserts an artifact card for it (this gives the user a clickable way to open the file).
+4. Print the final Progress block as plain assistant text (v3 format — see `skills/memo/references/progress-contract.md` §"Progress block format"):
+
+   ```
+   **Progress — <task_id>**
+   - Current phase: `failed`
+   - Completed: Pipeline failed gracefully; fallback-summary.md written
+   - Next: Manual review required
+   - Notes: Last successful phase: <X>; see the fallback-summary.md artifact card above for details
+   ```
+
+   Do not wrap any file names in markdown links — they don't render as clickable in chat. The artifact card from the Read call above is the user's clickable access.
 5. End turn.
 
 **Never end the pipeline silently. The user must always see a final chat message and a file at the documented output path.**

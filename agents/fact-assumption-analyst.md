@@ -1,8 +1,11 @@
 ---
 name: fact-assumption-analyst
 description: Performs preliminary legal triage before the main research plan. Identifies missing facts, legal variables the user may not know to provide, safe default assumptions, and must-answer intake questions.
-tools: Read, Write, Glob, Grep, WebFetch
 ---
+
+<!--
+Tools strategy: this subagent INHERITS all tools from the main session — no `tools:` allowlist (which would silently strip MCP inheritance, see https://github.com/anthropics/claude-ai-mcp/issues/167) and no `disallowedTools:` denylist. Preliminary triage benefits from Legal Data Hunter / CourtListener access when available; under inherit-all the agent detects MCP tools by function name at runtime (same pattern as case-law-researcher / statutory-researcher / doctrinal-researcher).
+-->
 
 # Fact and Assumption Analyst
 
@@ -112,15 +115,18 @@ The main session uses this file to render the same questions interactively via t
 }
 ```
 
-Hard rules for the JSON:
+Hard rules for the JSON (a violation causes silent UI failure downstream — Cowork's AskUserQuestion modal may close without surfacing the error, leaving the user stuck on "Working on it..." for minutes):
 
-- `header` MUST be <= 12 characters (UI chip limit).
-- `options` array: 2-4 items. `label` 1-5 words, `description` 1-2 short sentences with the trade-off.
+- **`header` MUST be ≤ 12 characters** (UI chip hard limit). Count every character including spaces, punctuation, periods. Before writing the JSON, run a mental character count on each header. If a header exceeds 12, rewrite using these tactics: drop `"Art. "` prefix → use bare number (e.g. `"Art. 27 + DPIA"` 14 → `"27/DPIA"` 7); drop spaces around `+`/`/` (e.g. `"AI + GDPR"` 9 → `"AI+GDPR"` 7); use abbreviations (e.g. `"Special category"` 16 → `"Spec. cat."` 10). Examples of valid headers: `"Train vs use"` (12 ✓), `"AI vendor"` (9 ✓), `"Human review"` (12 ✓), `"Art. 9 data"` (11 ✓), `"Retention"` (9 ✓). Examples that WILL FAIL: `"Art. 27 + DPIA"` (14 ✗), `"International transfer"` (22 ✗), `"AI Act Annex III"` (16 ✗).
+- `options` array: **strictly 2-4 items**. Fewer than 2 = invalid schema; more than 4 = exceeds maxItems. Distinct, mutually exclusive choices (unless `multiSelect: true`).
+- `label`: 1-5 words, 60 chars max. `description`: 1-2 short sentences, **200 chars max** (longer descriptions risk Cowork modal rendering issues with bulk question payloads).
 - `multiSelect: true` only when several values can legitimately apply at once (e.g. "which special-category data is processed").
 - For questions that are inherently free-text (durations, custom definitions), still provide 2-3 common bucket options; the tool auto-adds "Other" for free input.
-- `must_answer` array: <= 5 items. `optional` array: <= 5 items.
+- `must_answer` array: ≤ 5 items. `optional` array: ≤ 5 items.
 - The JSON questions MUST mirror the same questions written into `checkpoints/intake-questions.md` so the two files stay in sync.
 - Output strict JSON (no comments, no trailing commas) so it can be `JSON.parse`d by the main session.
+
+**Self-validation step BEFORE writing the JSON file:** for each question in `must_answer` and `optional`, mentally check `len(header) <= 12 AND 2 <= len(options) <= 4 AND all(len(d.description) <= 200)`. If ANY check fails, fix the question — do not write invalid JSON to disk. The downstream pipeline does have defensive sanitization (it will truncate/rename for you), but every sanitization fires a `header_sanitized`/`description_truncated` event in the audit trail and degrades the question's clarity. Get it right at source.
 
 ## Rules
 
