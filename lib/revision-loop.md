@@ -14,11 +14,11 @@ Up to five reviewer kinds; the active set is `state.json.config.reviewer_list` (
 | **Augmented** | `citations` (citation-auditor), `counterarguments` (counterargument-reviewer) | `drafts/vN.md` PLUS research files + (for counterarguments) intake files. They have research access by design because their jobs — source grounding and contrary-authority discovery — cannot be done from the draft alone. |
 
 Per-reviewer detail:
-- **logic-reviewer** *(isolated)* — IRAC structure, logical coherence, inter-issue consistency. Reads: `drafts/vN.md` only. Model: Haiku.
-- **clarity-reviewer** *(isolated, Full mode only)* — sentence length, jargon without explanation, accessibility for non-lawyer stakeholders. Reads: `drafts/vN.md` only. Model: Haiku.
-- **style-reviewer** *(isolated, Full mode only)* — AI-tells, em-dash overuse, inflated symbolism, grammar. Reads: `drafts/vN.md` only. Model: Haiku.
-- **citation-auditor** *(augmented)* — every normative/case/doctrine claim in the draft is grounded in `research/*.md` and `research/source-pack.md`; currency blocking issues respected. Reads: `drafts/vN.md` + research files + `research/raw/`. Model: Sonnet.
-- **counterargument-reviewer** *(augmented)* — stress-tests overconfident conclusions, contrary authority, hidden assumptions, and client-risk attack vectors. Reads: `drafts/vN.md` + `research/source-pack.md` + `research/statutes.md` + `research/case-law.md` + `research/doctrine.md` (if exists) + intake files. Model: Sonnet.
+- **logic-reviewer** *(isolated)* — IRAC structure, logical coherence, inter-issue consistency. Reads: `drafts/vN.md` only. Model: Sonnet.
+- **clarity-reviewer** *(isolated, Full mode only)* — sentence length, jargon without explanation, accessibility for non-lawyer stakeholders. Reads: `drafts/vN.md` only. Model: Sonnet.
+- **style-reviewer** *(isolated, Full mode only)* — AI-tells, em-dash overuse, inflated symbolism, grammar. Reads: `drafts/vN.md` only. Model: Sonnet.
+- **citation-auditor** *(augmented)* — every normative/case/doctrine claim in the draft is grounded in `research/*.md` and `research/source-pack.md`; currency blocking issues respected. Reads: `drafts/vN.md` + research files + `research/raw/`. Model: Opus (matches writer's depth so subtle source-drift is caught, not only missing citations).
+- **counterargument-reviewer** *(augmented)* — stress-tests overconfident conclusions, contrary authority, hidden assumptions, and client-risk attack vectors. Reads: `drafts/vN.md` + `research/source-pack.md` + `research/statutes.md` + `research/case-law.md` + `research/doctrine.md` (if exists) + intake files. Model: Opus (adversarial reasoning requires the deepest model).
 
 After reviewers complete, **revision-mediator** (Opus) consolidates the configured review JSONs into a single actionable list and updates `state.json`.
 
@@ -98,7 +98,7 @@ The iteration cap lives ONLY at `state.json.config.max_iterations` (Brief=1, Ful
 
 ## Edge cases
 
-- **Reviewer takes too long** (>10 min): if observed, retry with a stricter "respond in ≤100 words" reminder. Persistent slow runs → switch reviewer model to Sonnet temporarily (not in v0.0.1 default).
+- **Reviewer takes too long** (>10 min): if observed, retry with a stricter "respond in ≤100 words" reminder. Persistent slow runs on an Opus-tier reviewer (citation-auditor, counterargument-reviewer) → consider temporarily overriding to Sonnet via `CLAUDE_CODE_SUBAGENT_MODEL` for the affected run; do not edit the agent frontmatter as a quick fix.
 - **Mediator returns invalid state.json update**: re-dispatch mediator once. Then surface the error and end turn with a "manual intervention required" message in the user output.
 - **State validation**: after mediator returns, run `scripts/validate_state.py` against `state.json` before trusting `current_iteration`, `current_phase`, or `final_status`.
 - **A reviewer marks the draft `approved` with high score but lists nice-to-have items**: nice-to-have are NEVER applied. Only blocking_issues drive the writer's next revision.

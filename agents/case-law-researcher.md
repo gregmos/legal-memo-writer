@@ -1,6 +1,7 @@
 ---
 name: case-law-researcher
 description: Searches relevant case law (judgments, decisions, opinions) for issues from a memo plan. Routes US case law to CourtListener MCP and multi-jurisdictional case law to Legal Data Hunter MCP. Structures findings as prevailing / conflicting / recent positions.
+model: sonnet
 ---
 
 <!--

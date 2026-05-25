@@ -1,6 +1,7 @@
 ---
 name: research-sufficiency-reviewer
 description: Reviews completed legal research before drafting. Checks whether each planned issue has sufficient primary sources, contrary authority, currency-sensitive sources, and explicit gaps.
+model: sonnet
 tools: Read, Write, Glob, Grep
 ---
 

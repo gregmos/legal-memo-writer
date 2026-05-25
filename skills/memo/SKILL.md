@@ -480,9 +480,86 @@ If `visualize_enabled == false` or the call throws, skip silently and proceed to
 
 7. **TodoWrite update.** Mark item #2 ("Mode pick") = `completed`, item #3 ("Build research plan") = `in_progress`. Silent skip if `TodoWrite` is unavailable.
 
-8. Inline continue to Phase 3 — do not end the turn.
+8. **Style-profile resolve (zero-overhead when no profiles exist).** Look up the user's saved style profiles. **If none exist, this step is silent — no prompt, no log noise, nothing user-visible. The pipeline behaves exactly as it did before the Style Studio feature shipped.** If at least one profile exists, ask the user which one to use (or fall back to the built-in style).
 
-Downstream phases read `state.json.config` and behave accordingly (see `modes.md` "How each downstream phase reads config" section). In particular, Phase 3 will read `config.template_id` directly — Brief mode always produces an `executive-brief` (2-3 pages); Full mode always produces a `classical-memo`.
+   ```bash
+   # List profiles (empty array if the dir is empty or missing).
+   PROFILES_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" list)
+   DEFAULT_NAME=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" get-default)
+   ```
+
+   **8a. No profiles.** If `PROFILES_JSON == "[]"`, write nulls to state.json.config and skip the rest of this step entirely. NO chat output, NO checkpoint:
+
+   ```bash
+   python3 - <<'PY'
+   import json, pathlib
+   p = pathlib.Path("<WORK_DIR>/state.json")
+   s = json.loads(p.read_text())
+   s["config"]["style_profile"] = None
+   s["config"]["style_profile_path"] = None
+   s["config"]["prose_style_path"] = None
+   s["config"]["template_path"] = None
+   tmp = p.with_suffix(".json.tmp"); tmp.write_text(json.dumps(s, indent=2)); tmp.replace(p)
+   PY
+   ```
+
+   Continue inline to step 9 — nothing else fires for this step.
+
+   **8b. At least one profile exists.** Build an `AskUserQuestion` (English, copy verbatim):
+
+   - **Question:** "Which style should we use for this memo?"
+   - **Header:** "Style" (≤12 chars).
+   - **multiSelect:** false.
+   - **Options:** for each profile in `PROFILES_JSON`, add one option:
+     - label: `Your profile: <name>` (if `<name> == DEFAULT_NAME`, mark it preselected by listing it FIRST) OR `Profile: <name>` (non-default profiles).
+     - description: 1-line summary from `meta.summary`, plus mode binding (e.g. "From 3 EU GDPR memos. Mode: brief.")
+   - Final option (always last):
+     - label: "Standard plugin style (built-in)"
+     - description: "Skip custom profile and use the bundled prose-style + classical-memo / executive-brief template"
+
+   Cap the options at 4 (AskUserQuestion limit). If more than 3 profiles exist, show the default + first two others + "Standard plugin style". The user can still pick a different profile later via `/legal-memo-writer:style use <name>` then re-run /memo.
+
+   Branch on the answer:
+
+   - **"Standard plugin style"** → write nulls (same as step 8a above). Log `style_profile_resolved` event with `{"chosen": "built-in", "profiles_available": <N>}`.
+
+   - **Any profile picked** → resolve paths via:
+     ```bash
+     PATHS_JSON=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" resolve-paths "<picked_name>")
+     ```
+     Parse the JSON and write to state.json.config (atomic merge):
+     ```bash
+     python3 - <<'PY'
+     import json, pathlib
+     paths = json.loads('<PATHS_JSON>')
+     p = pathlib.Path("<WORK_DIR>/state.json")
+     s = json.loads(p.read_text())
+     s["config"]["style_profile"] = paths["style_profile"]
+     s["config"]["style_profile_path"] = paths["style_profile_path"]
+     s["config"]["prose_style_path"] = paths["prose_style_path"]
+     s["config"]["template_path"] = paths["template_path"]
+     tmp = p.with_suffix(".json.tmp"); tmp.write_text(json.dumps(s, indent=2)); tmp.replace(p)
+     PY
+     ```
+     Log `style_profile_resolved` event with `{"chosen": "<name>", "has_custom_template": <bool>, "profiles_available": <N>}`.
+
+     **Mode-mismatch check.** Read the picked profile's `meta.mode_binding`. If it differs from `state.json.mode`, ask a follow-up `AskUserQuestion`:
+
+     - **Question:** "Profile `<name>` was created for `<mode_binding>`, but you selected `<state.json.mode>`. How should we proceed?"
+     - **Header:** "Mode"
+     - Options:
+       - label: `Use the profile (switch to <mode_binding>)`, description: "Re-runs Phase 1.5 mode-config merge for <mode_binding>; profile is applied"
+       - label: `Use built-in template for <state.json.mode>`, description: "Keep <state.json.mode> mode and ignore the profile's template; only prose-style still applies"
+
+     Branch:
+     - "Use the profile" → call the merge-config block from Phase 1.5 step 3 again, but with the profile's `mode_binding` instead of the originally chosen mode. Update `state.json.mode`. Re-emit `mode_selected` with `reason: "profile_mode_binding"`.
+     - "Use built-in template for X" → clear `state.json.config.template_path` (set to null), keep `prose_style_path` non-null. The writer will use built-in template structure but custom prose style.
+
+   **8c. Heads-up.** Print a one-line Progress note to chat after the choice resolves: `Style profile: <name> (custom prose-style + <built-in / custom> template).` This is the user's signal that their profile was picked up. Skip the note if "Standard plugin style" was chosen (no change from default behaviour).
+
+9. Inline continue to Phase 3 — do not end the turn.
+
+Downstream phases read `state.json.config` and behave accordingly (see `modes.md` "How each downstream phase reads config" section). In particular, Phase 3 will read `config.template_id` directly — Brief mode always produces an `executive-brief` (2-3 pages); Full mode always produces a `classical-memo`. Custom style profiles override `prose_style_path` / `template_path` only — they do NOT change `template_id`, so classifier and validator logic stay stable.
 
 ## Phase 3 — Classify & build plan
 
@@ -941,14 +1018,15 @@ For each iteration N (1 to `state.json.config.max_iterations`):
 
    Output filename pattern is always `reviews/v<N>-<reviewer_kind>.json` (use the plural canonical kind, e.g. `reviews/v<N>-counterarguments.json`).
 
-   Example for Full mode (all five) — adjust the set for Brief (logic + citations + counterarguments only):
+   Example for Full mode (all five) — adjust the set for Brief (logic + citations + counterarguments only). **Every reviewer prompt MUST include the absolute path to `state.json`** so the reviewer can read `config.prose_style_path` / `config.template_path` and apply the user's custom style profile when one is in effect (those fields are null in the common case → reviewer uses built-in rules):
    ```
-   Agent(subagent_type="logic-reviewer", prompt="Review drafts/v<N>.md at <full_path>. Emit JSON to reviews/v<N>-logic.json.")
-   Agent(subagent_type="clarity-reviewer", prompt="Review drafts/v<N>.md at <full_path>. Emit JSON to reviews/v<N>-clarity.json.")
-   Agent(subagent_type="style-reviewer", prompt="Review drafts/v<N>.md at <full_path>. Emit JSON to reviews/v<N>-style.json.")
+   Agent(subagent_type="logic-reviewer", prompt="Review drafts/v<N>.md at <full_path>. State at <work_dir>/state.json. Emit JSON to reviews/v<N>-logic.json.")
+   Agent(subagent_type="clarity-reviewer", prompt="Review drafts/v<N>.md at <full_path>. State at <work_dir>/state.json. Emit JSON to reviews/v<N>-clarity.json.")
+   Agent(subagent_type="style-reviewer", prompt="Review drafts/v<N>.md at <full_path>. State at <work_dir>/state.json. Emit JSON to reviews/v<N>-style.json.")
    Agent(subagent_type="citation-auditor", prompt="Audit drafts/v<N>.md at <full_path> against research/*.md, research/source-pack.md, and research/currency-report.json (canonical machine-readable view; markdown fallback at research/currency-report.md) at <paths>. Emit JSON to reviews/v<N>-citations.json.")
-   Agent(subagent_type="counterargument-reviewer", prompt="Stress-test drafts/v<N>.md at <full_path> against source-pack and intake assumptions. Emit JSON to reviews/v<N>-counterarguments.json.")
+   Agent(subagent_type="counterargument-reviewer", prompt="Stress-test drafts/v<N>.md at <full_path> against source-pack and intake assumptions. State at <work_dir>/state.json. Emit JSON to reviews/v<N>-counterarguments.json.")
    ```
+   (`citation-auditor` does not need state.json — it audits source-grounding, which is independent of style profile.)
    All dispatched reviewers resolve before the next assistant turn. Do NOT serialize these — that wastes wall-time and reviewer isolation depends on each receiving a focused prompt.
    Print a progress update before dispatching reviewers: iteration N, draft path, reviewer list (from `config.reviewer_list`).
 

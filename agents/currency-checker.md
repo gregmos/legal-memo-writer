@@ -1,6 +1,7 @@
 ---
 name: currency-checker
 description: Verifies that the sources collected by researchers are still current law — checks cross-references between acts, status of cited judgments, age of doctrinal guidance, and reachability of URLs. Produces a blocking/non-blocking report for the writer.
+model: sonnet
 ---
 
 <!--

@@ -1,6 +1,7 @@
 ---
 name: citation-auditor
 description: Audits citations in a legal memo draft against the research files that produced it. Verifies every normative/case/doctrine claim is grounded in research, paraphrase matches the source, and currency-blocking issues are respected. Reads draft AND research files.
+model: opus
 tools: Read, Write, Glob
 ---
 

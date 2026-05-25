@@ -3,7 +3,7 @@
 > Multi-agent legal memo drafting plugin for **Claude Cowork** (primary) and **Claude Code** (best-effort).
 > Takes a free-form legal question, runs the full lawyer workflow — intake, research, drafting, review, polish — and ships a finished `.docx` memo.
 
-**Version:** `0.1.1` · **Author:** Grigorii Moskalev · **License:** MIT
+**Version:** `0.4.0` · **Author:** Grigorii Moskalev · **License:** MIT
 
 ---
 
@@ -31,7 +31,7 @@ You get a memo that cites real statutes and judgments, names contrary authority,
 
 ### 1. Install
 
-**Cowork:** Settings → Plugins → drag-and-drop `legal-memo-writer-0.1.0.zip` from the [Releases page](../../releases), or install via marketplace.
+**Cowork:** Settings → Plugins → drag-and-drop `legal-memo-writer-0.4.0.zip` from the [Releases page](../../releases), or install via marketplace.
 
 **Claude Code (local dev):**
 ```bash
@@ -88,6 +88,7 @@ Files you'll find there:
 | `/legal-memo-writer:memo "<query>"` | Start a new memo |
 | `/legal-memo-writer:continue <task_id> <action>` | Reply to an open checkpoint or resume a paused task |
 | `/legal-memo-writer:status [<task_id>]` | Show phase, progress, blockers for one task or list all tasks |
+| `/legal-memo-writer:style [<action> …]` | Manage custom style + formatting profiles (see [Customization](#customization)) |
 
 `<task_id>` is the slug of the working directory (e.g. `memo-20260522T143010Z`). The pipeline prints it when the task starts.
 
@@ -221,15 +222,56 @@ Single source of truth: `skills/memo/references/pipeline-contract.md §WebSearch
 
 ## Customization
 
-### House style
-Edit `lib/prose-style.md` to change:
-- Default jurisdictions priority
-- Reviewer conflict priorities (default: logic ≈ citations > style > clarity)
-- Tone and confidentiality rules
-- Anti-patterns to avoid
+### Style Studio — your own house style and template (recommended)
 
-In Cowork: edit at `~/.claude/plugins/cache/legal-memo-writer/lib/prose-style.md`.
-In Claude Code dev mode: edit the file directly in your plugin source directory.
+Define your style **once**, apply to every memo. The plugin reads your saved profile during Phase 1.5; the writer and reviewers then follow YOUR rules instead of the bundled ones.
+
+**Create a profile** — three input modes:
+
+```bash
+# From example memos (PDFs, .docx, .md, .txt)
+/legal-memo-writer:style new my-firm --examples ~/memos/2025-q4/ --mode full
+
+# From written rules (inline text or path to a .md file)
+/legal-memo-writer:style new compact --rules "no em-dashes; OSCOLA citations; ALL CAPS headings" --mode brief
+
+# Both (rules win on conflict)
+/legal-memo-writer:style new acme --examples ~/memos/acme/ --rules ~/style/acme-rules.md --mode full
+```
+
+Or just run `/legal-memo-writer:style` with no arguments for an interactive menu.
+
+The Style Studio extractor (Opus subagent) reads your inputs and writes `prose-style.md` + `template.md` + `meta.json` into `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/`. The files are plain markdown — open and edit them by hand if you want.
+
+**Pick a default** so `/legal-memo-writer:memo` preselects it:
+
+```bash
+/legal-memo-writer:style use my-firm
+```
+
+**Other actions:**
+
+```bash
+/legal-memo-writer:style list              # Table of all profiles, mode bindings, defaults
+/legal-memo-writer:style show my-firm      # Print meta.json + first 30 lines of style/template
+/legal-memo-writer:style delete my-firm    # Remove (with confirmation if it was default)
+/legal-memo-writer:style use --clear       # Drop the default — Phase 1.5 will offer all profiles next time
+```
+
+**One profile, one mode.** A Brief-bound profile applies to executive-briefs (1-3 pages); a Full-bound profile to classical-memos (5-15 pages). If you need both shapes for the same house style, create two profiles (e.g. `my-firm-brief` + `my-firm-full`).
+
+**Zero overhead when empty.** If you never create a profile, `/legal-memo-writer:memo` runs identically to the pre-Style-Studio versions — no extra prompts, no behaviour change. The Phase 1.5 style-pick checkpoint appears only when at least one profile exists.
+
+**Profile-aware reviewers.** When a custom profile is in effect, `style-reviewer`, `clarity-reviewer`, `logic-reviewer`, `counterargument-reviewer`, and `revision-mediator` all defer to YOUR rules — em-dashes you allow are not flagged, the cap you set replaces the 40-word default, the cross-reference notation you use replaces `(§ N)`. Substantive checks (IRAC, citation accuracy, contrary authority) stay uniform.
+
+### House style without profiles (manual)
+
+If you prefer to edit the bundled style directly (legacy path; affects every user of this plugin install, not just one user):
+
+- Edit `lib/prose-style.md` for tone, sentence/paragraph caps, anti-patterns, reviewer conflict priorities.
+- Edit `templates/classical-memo.md` or `templates/executive-brief.md` for the document structure.
+- In Cowork: files live at `~/.claude/plugins/cache/legal-memo-writer/lib/` and `.../templates/`.
+- In Claude Code dev mode: edit the files in your plugin source directory.
 
 ### Output folder (resolution order)
 1. `CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER` (set in Cowork plugin settings)
@@ -260,11 +302,11 @@ You never end a session with nothing. See `skills/memo/references/always-deliver
 
 - **No cross-task memory.** Each memo is a fresh task; the plugin does not learn from prior memos.
 - **HITL UI** depends on the host. Cowork shows interactive widgets via `visualize:show_widget`; Claude Code falls back to text/file-based checkpoints.
-- **Three mandatory user checkpoints** in the default path: intake (Phase 2a), mode (Phase 1.5), plan (Phase 4a). Two optional gates: heartbeat (Phase 7.5) and pre-polish (Phase 9/10).
+- **Three mandatory user checkpoints** in the default path: intake (Phase 2a), mode (Phase 1.5), plan (Phase 4a). A fourth style-profile checkpoint at Phase 1.5 appears only when the user has at least one saved Style Studio profile. One optional gate after source pack: source review (Phase 7.5).
 - **Pandoc docx fallback** is best-effort; primary path is `md_to_docx.py` via python-docx.
 - **No generic WebSearch fallback** for statutes / case law when MCP is down. Either canonical primary source via WebFetch, or the gap is reported explicitly.
 - **Mid-run mode switching** is not supported — cancel and rerun in the other mode.
-- **Claude Code state persistence** between turns differs from Cowork; v0.1.0 guarantees Cowork, Claude Code is best-effort.
+- **Claude Code state persistence** between turns differs from Cowork; v0.4.0 guarantees Cowork, Claude Code is best-effort.
 
 ---
 
@@ -274,11 +316,12 @@ You never end a session with nothing. See `skills/memo/references/always-deliver
 legal-memo-writer/
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # Bundled MCP servers (Legal Data Hunter, CourtListener)
-├── agents/                        # 15 worker subagents
-├── skills/                        # 6 skills (3 entry, 3 auto)
-├── templates/                     # classical-memo, executive-brief, research-summary-only
-├── scripts/                       # log_event.py, validators, tests
-├── dist/                          # Build artifacts (gitignored, except releases)
+├── agents/                        # 16 worker subagents (15 pipeline + style-extractor)
+├── skills/                        # 4 entry skills: memo, continue, status, style
+├── templates/                     # classical-memo, executive-brief, research-summary-only (built-in fallbacks)
+├── lib/                           # Internal modules: prose-style.md, revision-loop.md, docx-render/
+├── scripts/                       # log_event.py, validate_*.py, resolve_*.py, tests/
+├── dist/                          # Build artifacts (gitignored, published to Releases)
 ├── README.md
 └── CHANGELOG.md                   # Version history
 ```

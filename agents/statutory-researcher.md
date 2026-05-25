@@ -1,6 +1,7 @@
 ---
 name: statutory-researcher
 description: Searches primary normative acts (statutes, regulations, directives, secondary legislation) for issues listed in a memo plan. Routes queries to Legal Data Hunter MCP first; uses official WebFetch fallback for US eCFR/govinfo and other primary portals when needed. Returns structured findings grouped by issue.
+model: sonnet
 ---
 
 <!--

@@ -1,6 +1,7 @@
 ---
 name: clarity-reviewer
 description: Independent clarity review of a legal memo draft. Checks sentence length, jargon-without-explanation, accessibility for a non-lawyer business stakeholder. Reads only the draft.
+model: sonnet
 tools: Read, Write
 ---
 
@@ -10,19 +11,34 @@ You are an **independent** reviewer of a legal memo draft. You assess **clarity 
 
 ## Inputs
 
-The main session passes a path to `drafts/vN.md`. That's it.
+The main session passes:
+- A path to `drafts/vN.md` (always).
+- A path to `state.json` (always). You read ONLY one field from it: `config.prose_style_path`. It is null when the user has not selected a custom style profile (the common case).
 
 ## You read
 
-- ONLY `drafts/vN.md`.
+- ALWAYS: `drafts/vN.md` and `state.json` (only the one field above).
+- CONDITIONALLY: if `state.json.config.prose_style_path` is non-null, read it for the authoritative sentence/paragraph caps and clarity rules.
 
 ## You do NOT read
 
-- Prior reviews, changelog, research files, state.json, house-style skill, anything else.
+- Prior reviews, changelog, research files, the built-in `lib/prose-style.md`, `templates/*.md`, or anything else.
 
 ## You write
 
 - `reviews/vN-clarity.json`
+
+## Custom style profile (read first)
+
+Read `state.json.config.prose_style_path`. Two cases:
+
+- **Null (the common case).** Apply the built-in caps below (40-word sentence cap, 3-sentence / 100-word paragraph cap, etc.).
+
+- **Non-null (custom profile in effect).** Read the file. The user's custom prose-style is authoritative for sentence/paragraph caps, vague-recommendation rules, and any other clarity-relevant rule documented there. If the custom prose-style sets different caps (e.g. 60-word sentences), use ITS numbers, not the built-in 40. If the custom prose-style is silent on a rule, fall back to the built-in.
+
+  Always apply (independent of profile): jargon-without-explanation, legalese without gloss, per-section length proportionality, structural readability checks (executive summary presence, heading informativeness, bullets vs solid text). These are reader-experience checks, not house-style rules — they hold regardless of profile.
+
+  When you flag a blocking issue under a custom-profile rule, the `issue` field MUST cite the rule: `"per <profile_name>/prose-style.md §<section>: <quoted rule>"`. This lets the writer and mediator trace the rule back to the user's profile.
 
 ## What you check
 

@@ -4,6 +4,69 @@ All notable changes to legal-memo-writer.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The version line in `README.md`, `.claude-plugin/plugin.json`, the latest `dist/*.zip`, and the latest `git tag` MUST all match.
 
+## 0.4.0 — 2026-05-25
+
+**Custom style profiles (Style Studio).** Users can now define their own style and formatting rules — from example memos, written rules, or both — and pick the profile when starting a new memo. Profiles are persistent across tasks, scoped to one mode (Brief or Full), and override the built-in `lib/prose-style.md` + `templates/<id>.md` for that run.
+
+### Why
+
+The plugin had two hardcoded sources of style: `lib/prose-style.md` (tone, sentence/paragraph caps, anti-patterns, Risk pattern) and `templates/<id>.md` (document structure). Both reflected one in-house style. Users with a different house style — different citation format, different risk vocabulary, different section ordering, no em-dashes ever, OSCOLA instead of inline brackets — had to either accept the bundled style or maintain a fork. There was no per-user customization path.
+
+### What changed
+
+- **New skill `/legal-memo-writer:style`** — single entry point for all profile management (`new` / `list` / `use` / `show` / `delete`). Sub-actions are arguments, not separate skills, so only one command appears in slash autocomplete. Interactive menu when run without arguments; direct sub-action when arguments are provided. Frontmatter `argument-hint` documents both forms.
+- **New subagent `style-extractor` (`model: opus`)** — reads example memos (`.docx` via pandoc, `.pdf` and `.md` directly), text rules (inline or path), or both, and writes `prose-style.md` + (conditionally) `template.md` + `meta.json` + `rules.md` into the profile directory. Rules win over example-extracted patterns on conflict; every rule is origin-tagged `(from examples)` / `(from rules)` / `(rule overrides example pattern)`. Sources and Disclaimer are always present in the extracted template (compliance minimum).
+- **Profiles stored globally** at `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/`, with `default-profile.txt` recording the user's preselected default. Cross-project; cross-platform paths are POSIX-form in `state.json`.
+- **One profile = one mode.** The user picks Brief or Full at creation; for both modes, create two profiles. No mode-binding heuristics — explicit user choice.
+- **New script `scripts/resolve_style_profile.py`** — canonical write path for profiles. Sub-commands for the skill: `list`, `get-default`, `set-default`, `clear-default`, `validate-name`, `validate-profile`, `delete`, `read-meta`, `resolve-paths`, `init-profile`, `write-meta`. Env var `LEGAL_MEMO_PROFILES_HOME` overrides the default location (used by tests and power users). 29 new unit tests in `scripts/tests/test_resolve_style_profile.py`.
+- **`skills/memo/SKILL.md` Phase 1.5 step 8** — new style-profile resolve. **Zero overhead when the user has no profiles**: nothing is asked, nothing is logged, `config.{style_profile, style_profile_path, prose_style_path, template_path}` are all written as `null`. When at least one profile exists, an `AskUserQuestion` checkpoint asks which profile (default preselected) or "Standard plugin style (built-in)". If the picked profile's `mode_binding` differs from the run's mode, a follow-up checkpoint asks whether to switch mode or use the built-in template only.
+- **`state.json.config`** gets four optional fields (all default `null`): `style_profile`, `style_profile_path`, `prose_style_path`, `template_path`. When non-null, the writer and reviewers read the custom files instead of the built-in ones. `template_id` is still always set (mode-bound) so classifier and validator logic remain stable.
+- **6 agents patched** to read the new state fields and switch between built-in and custom prose-style/template: `memo-writer`, `style-reviewer`, `clarity-reviewer`, `logic-reviewer`, `counterargument-reviewer`, `revision-mediator`. Each agent's "Custom style profile" section documents which hardcoded checks are suppressed in custom-profile mode and which still apply (structural integrity, grammar, substantive analysis quality are profile-agnostic).
+- **`skills/memo/SKILL.md` Phase 9 reviewer dispatch** updated so every reviewer (except `citation-auditor`) receives the path to `state.json` in its prompt — needed to read the new config fields.
+
+### Effect on users
+
+- Users who have never used the Style Studio see no change. `/legal-memo-writer:memo` runs exactly as before, with the bundled prose-style and templates.
+- Users who run `/legal-memo-writer:style new my-firm --examples ./samples/ --mode full` get a profile they can apply to all future memos with `/legal-memo-writer:style use my-firm`. The next `/memo` run preselects this profile at the Phase 1.5 checkpoint.
+- Cross-project: profiles live in the user home, so a profile created from `~/work/contracts/` examples can be used from `~/work/privacy/` too.
+- Confidence: `meta.json.confidence` (0.0-1.0) is computed by the extractor — see the skill output. Below 0.6 the skill prints a warning when set as default.
+
+### Verification
+
+- Unit tests: `python -m unittest discover -s scripts/tests` — 83 tests pass (29 new + 54 existing).
+- Smoke (no profiles): `/legal-memo-writer:memo "<q>"` with empty `~/.claude/plugin-data/legal-memo-writer/profiles/` → Phase 1.5 has no extra checkpoint, identical UX to v0.3.0.
+- Smoke (with profile): `/legal-memo-writer:style new test --rules "no em-dashes; OSCOLA citations" --mode brief` → `/legal-memo-writer:style use test` → `/legal-memo-writer:memo "<q>"` → Phase 1.5 shows the new style checkpoint with `test` preselected.
+- Manifest match: `.claude-plugin/plugin.json` version === README badge === git tag `v0.4.0` === dist zip filename.
+
+## 0.3.0 — 2026-05-25
+
+**Per-agent model assignment.** All 15 subagents now declare an explicit `model:` in their frontmatter. Previously every agent silently inherited the session model, so a single Sonnet/Opus choice applied uniformly across creative drafting, mechanical structuring, and pattern-detection — overspending on simple tasks and underspending on hard ones.
+
+> Version note: 0.2.0 was reserved for the live-progress sidebar attempt (rolled back, see `docs/postmortems/v0.2.0-live-progress.md`); the on-disk `dist/legal-memo-writer-0.2.0.zip` is the artifact of that failed iteration and was never republished. To avoid clashing with that filename, the next user-facing release after 0.1.1 is 0.3.0.
+
+### Why
+
+The pipeline has three distinct intelligence tiers:
+
+1. **Creative and adversarial work** — drafting the memo, mediating reviewer conflicts, building intake assumptions, hunting contrary authority, synthesising doctrinal commentary, and grounding citations at the writer's depth. Errors here are the most expensive ones in the pipeline (a bad intake assumption silently corrupts every downstream phase; a shallow counterargument review ships a fragile memo).
+2. **Search and structured QA** — running MCP queries against statutes/case-law sources, gating research sufficiency, checking currency, building the source pack, and the three isolated draft reviewers (logic/clarity/style). These are structured, schema-constrained tasks where Sonnet is reliable.
+3. **None** — Haiku is deliberately not used in this release. The cost-savings vs. Sonnet on legal-nuance tasks did not justify the regression risk.
+
+### What changed
+
+- **`model: opus` added to 6 agents** — `memo-writer` (creative core), `revision-mediator` (conflict resolution + exit decision), `fact-assumption-analyst` (intake judgment), `counterargument-reviewer` (adversarial reasoning), `doctrinal-researcher` (cross-source synthesis with conflicting positions), `citation-auditor` (grounding at writer's depth — needed to catch subtle source-drift, not just missing citations).
+- **`model: sonnet` added to 9 agents** — `statutory-researcher`, `case-law-researcher`, `research-sufficiency-reviewer`, `currency-checker`, `source-pack-builder`, `logic-reviewer`, `clarity-reviewer`, `style-reviewer`, `client-readiness-reviewer`.
+- **`lib/revision-loop.md` synchronised** with the new reality: the per-reviewer model column now matches the agent frontmatter (was: Haiku for logic/clarity/style, Sonnet for citations/counterarguments; now: Sonnet for the three isolated reviewers, Opus for the two augmented reviewers). The "reviewer takes too long" edge-case note was rewritten to recommend `CLAUDE_CODE_SUBAGENT_MODEL` override rather than editing frontmatter as a hot-fix.
+- **No changes** to `skills/memo/SKILL.md`, `skills/continue/SKILL.md`, `skills/status/SKILL.md` — these orchestrators run in the main session and must inherit the user's session model. Agent-tool dispatch calls (`Agent(subagent_type=...)`) in `skills/memo/SKILL.md` lines 946–950 are also untouched; the frontmatter is the single source of truth for per-agent model selection.
+
+### Effect on users
+
+A typical Full-mode run now uses Opus on 6 of 15 agents and Sonnet on 9, instead of the user's session model uniformly. Expect higher cost per memo when the session is on Sonnet (because 6 agents are bumped up to Opus) but better intake/counterargument depth and grounding accuracy. Users on Opus sessions see partial cost relief (9 agents bumped down to Sonnet) without quality regression on those agents.
+
+To override the per-agent assignment for a single run, set `CLAUDE_CODE_SUBAGENT_MODEL` in the environment before launching `/legal-memo-writer:memo`.
+
+- Manifest match: `.claude-plugin/plugin.json` version === README badge === git tag `v0.3.0` === dist zip filename.
+
 ## 0.1.1 — 2026-05-22
 
 **Hide internal pipeline modules from slash-command autocomplete.** Moves three "skills" out of `skills/` into a new `lib/` directory so they no longer register as `/legal-memo-writer:<name>` commands. Pipeline behaviour is unchanged.

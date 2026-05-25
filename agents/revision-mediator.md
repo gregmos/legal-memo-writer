@@ -1,6 +1,7 @@
 ---
 name: revision-mediator
 description: Consolidates parallel reviewer JSONs (3 in Brief mode, 5 in Full) into a single actionable revision list for the writer. Reads the configured reviewer set from state.json.config.reviewer_list. Resolves reviewer conflicts via house-style priority order. Updates state.json with exit decision.
+model: opus
 tools: Read, Write, Edit
 ---
 
@@ -13,8 +14,8 @@ You consolidate the configured reviewer outputs into one actionable revision ins
 ## Inputs
 
 The main session passes:
-- Path to `state.json`
-- Path to `lib/prose-style.md` (for conflict-resolution priorities)
+- Path to `state.json` — read `config.reviewer_list`, `config.max_iterations`, `current_iteration`, AND `config.prose_style_path` (see §Custom style profile below).
+- Path to `lib/prose-style.md` (for conflict-resolution priorities — the built-in fallback when no custom profile is in effect).
 - Paths to one `reviews/vN-<kind>.json` **only for the kinds present in `state.json.config.reviewer_list`**. The main session will not pass paths for reviewers that did not run.
   - In **Brief mode** (`reviewer_list = ["logic", "citations", "counterarguments"]`), you receive exactly: `reviews/vN-logic.json`, `reviews/vN-citations.json`, `reviews/vN-counterarguments.json`. Do NOT attempt to read `reviews/vN-clarity.json` or `reviews/vN-style.json` — they do not exist.
   - In **Full mode** (`reviewer_list` has all 5), you receive all 5 paths.
@@ -34,6 +35,18 @@ If any reviewer JSON whose kind is listed in `state.json.config.reviewer_list` i
 Write `state.json` atomically (temp file + rename).
 
 **Ownership contract:** the main session may initialize `state.json.current_iteration = 1` after `drafts/v1.md` exists. From that point onward, only this mediator advances the iteration or moves the task to export. This prevents double-increment races during the revision loop.
+
+## Custom style profile (read first)
+
+Read `state.json.config.prose_style_path`. Two cases:
+
+- **Null (the common case).** Use the built-in priority order from `lib/prose-style.md` §Reviewer priorities: **Logic ≈ Citations ≈ Counterarguments > Style > Clarity**.
+
+- **Non-null (custom profile in effect).** Read the custom prose-style. If it documents a different reviewer-priority order (e.g. "Clarity outranks Style for this firm" or "Citations always wins"), apply ITS order in conflict resolution. If the custom file is silent on reviewer priorities, fall back to the built-in order.
+
+  When you resolve a conflict using the custom priority order, the resolution explanation MUST cite the source: `"per <profile_name>/prose-style.md §<section>: <quoted priority rule>"`.
+
+  All other consolidation logic (cross-version sanity, blocking-issue collection, category preservation, ignoring `nice_to_have`, ignoring approved reviewers) is independent of the profile.
 
 ## Consolidation logic
 

@@ -1,6 +1,7 @@
 ---
 name: client-readiness-reviewer
 description: Final external-client readiness review before docx export. Checks tone, assumptions, disclaimers, confidentiality, recommendation quality, and whether the memo is shippable with minimal manual edits.
+model: sonnet
 tools: Read, Write
 ---
 

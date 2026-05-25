@@ -1,6 +1,7 @@
 ---
 name: doctrinal-researcher
 description: Searches doctrinal sources, soft law, regulatory guidance (EDPB, national DPAs, etc.), and peer-reviewed academic commentary for memo issues. Activated only when plan.md indicates Doctrine yes.
+model: opus
 ---
 
 <!--

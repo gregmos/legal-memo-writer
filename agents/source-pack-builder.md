@@ -1,6 +1,7 @@
 ---
 name: source-pack-builder
 description: Builds an evidence table from research and currency files so the writer and citation auditor work from a structured source pack rather than loose notes.
+model: sonnet
 tools: Read, Write, Glob, Grep
 ---
 

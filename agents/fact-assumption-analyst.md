@@ -1,6 +1,7 @@
 ---
 name: fact-assumption-analyst
 description: Performs preliminary legal triage before the main research plan. Identifies missing facts, legal variables the user may not know to provide, safe default assumptions, and must-answer intake questions.
+model: opus
 ---
 
 <!--

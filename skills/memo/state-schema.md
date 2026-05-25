@@ -22,7 +22,17 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     "max_iterations": 1 | 3,                         // mode-dependent (Brief=1, Full=3); single source of truth for the revision-loop iteration cap — there is NO top-level max_iterations
     "client_polish_enabled": false | true,           // Brief = false; Full = true
     "max_client_polish": 0 | 1,                      // Brief=0, Full=1
-    "template_id": "executive-brief" | "classical-memo"  // direct mode→template binding (Brief → executive-brief, Full → classical-memo). Replaces the previous `template_constraint` object with its forced/bounded/open modes.
+    "template_id": "executive-brief" | "classical-memo",  // direct mode→template binding (Brief → executive-brief, Full → classical-memo). Replaces the previous `template_constraint` object with its forced/bounded/open modes. When a custom-profile `template_path` is set (see below), `template_id` still records the BOUND built-in (so classifier logic and validators keep working), but at draft/review time `template_path` is the authoritative source of structure. `template_id` is therefore always set after Phase 1.5; never null.
+
+    // Style-profile fields (all optional, all default null). Populated at Phase 1.5
+    // by the style-resolve step ONLY when ~/.claude/plugin-data/legal-memo-writer/profiles/
+    // contains at least one profile AND the user picked one (vs "Standard plugin style").
+    // When all four are null, the pipeline reads built-in lib/prose-style.md and
+    // templates/<template_id>.md — exactly the pre-Style-Studio behaviour.
+    "style_profile": null | "<profile name>",         // human-readable name (matches the directory under profiles/)
+    "style_profile_path": null | "<absolute POSIX path>", // path to the profile directory
+    "prose_style_path": null | "<absolute POSIX path>",   // path to <profile>/prose-style.md
+    "template_path": null | "<absolute POSIX path>"        // path to <profile>/template.md, or null if the profile has no template (rules-only without structural rules → fallback to built-in template)
   },
   // "heartbeat_choice" — DEPRECATED in v0.0.43. The Phase 7.5 heartbeat gate (full vs research-summary) was replaced by the source-review checkpoint, which is a text-parsed continue/cancel gate (no full/summary branch). NEW tasks do not write this field. Legacy tasks created on v0.0.42 or earlier may still have it set; `skills/continue/SKILL.md` drops it on resume and logs `legacy_field_dropped`.
   "revision_gate_choice": null | "continue",  // v0.0.44: auto-advanced by Phase 9 step 6b (no user gate). Legacy v0.0.43 value `accepted_early` no longer written but accepted on read.
