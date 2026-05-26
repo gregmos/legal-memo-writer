@@ -3,7 +3,7 @@
 > Multi-agent legal memo drafting plugin for **Claude Cowork** (primary) and **Claude Code** (best-effort).
 > Takes a free-form legal question, runs the full lawyer workflow — intake, research, drafting, review, polish — and ships a finished `.docx` memo.
 
-**Version:** `0.6.3` · **Author:** Grigorii Moskalev · **License:** MIT
+**Version:** `0.7.1` · **Author:** Grigorii Moskalev · **License:** MIT
 
 ---
 
@@ -31,7 +31,7 @@ You get a memo that cites real statutes and judgments, names contrary authority,
 
 ### 1. Install
 
-**Cowork:** Settings → Plugins → drag-and-drop `memoforge-0.6.3.zip` from the [Releases page](../../releases), or install via marketplace.
+**Cowork:** Settings → Plugins → drag-and-drop `memoforge-0.7.1.zip` from the [Releases page](../../releases), or install via marketplace.
 
 **Live-progress dashboard permission setup (one-time, only if needed).** v0.5.4 ships a `PreToolUse` hook that auto-approves the three Cowork artifact tools (`mcp__cowork__create_artifact`, `mcp__cowork__update_artifact`, `mcp__cowork__list_artifacts`) used by the live-progress sidebar dashboard. If that hook is honored by your Cowork build, the plugin runs without surfacing permission prompts during research, drafting, or review. If you still see repeated `Update artifact` prompts after installing 0.5.4, add the following to your user-level `~/.claude/settings.json` as a manual fallback (this is what the hook is doing under the covers; some Cowork builds may not honor plugin-bundled PreToolUse hooks):
 

@@ -64,6 +64,64 @@ Documented empirically through this arc (also in `~/.claude/projects/.../memory/
 
 ---
 
+## 0.7.1 — 2026-05-26 (HARD RULE: live-progress.html owned by render_live_progress.py + fix research_sufficiency_followup_pending phase coverage)
+
+**Two discipline + bug-fix items observed in v0.6.3 / v0.7.0 production runs.**
+
+### Why
+
+1. **Orchestrator improvisation on `live-progress.html`.** v0.6.x and v0.7.0 production runs showed orchestrators occasionally bypassing `scripts/render_live_progress.py` and writing custom HTML directly to `<work_dir>/live-progress.html` — typically after a heavy subagent (e.g. `case-law-researcher`) returned with rich `final_response_summary` data. The orchestrator would construct a research-phase-specific dashboard inline (DONE/RUNNING per-researcher badges, per-step citation lists) and call `mcp__cowork__update_artifact` with the overwritten file. Visually the result was sometimes nicer than the standard renderer, BUT: non-deterministic (re-runs differ), not data-driven (data isn't in state.json so the next render call wipes it), bypasses tests, bypasses schema, bypasses backward-compat. User confirmed it happened multiple times.
+
+2. **Dashboard regression at `research_sufficiency_followup_pending`.** v0.6.3 added the new phase enum value but `scripts/render_live_progress.py` PHASES[6]("Sufficiency").state_phases was not extended to include it. Result: when the orchestrator passed `current_phase == "research_sufficiency_followup_pending"` to the renderer, `find_phase_index()` returned `None`, and every downstream rendering decision broke — all 13 phase pills greyed out, "0 of 13 phases complete" displayed even when 6 phases were actually done, hero showed `PHASE — · — · —`. The user-supplied `current_step` text rendered correctly (it's a string parameter, doesn't go through phase math), but the phase-position UI was useless. Caught and fixed during a live production run.
+
+### What changed
+
+**Part A — HARD RULE: `<work_dir>/live-progress.html` is owned by `render_live_progress.py`.**
+
+- **`skills/memo/references/live-progress-contract.md`** gains a new H2 section "HARD RULE — `<work_dir>/live-progress.html` is owned by `render_live_progress.py` (v0.7.1+)" placed right after "How the channel works". The section documents the prohibition explicitly:
+  - Orchestrator and every subagent MUST NOT `Write` / `Edit` `live-progress.html`, MUST NOT use Bash `cat`/`echo`/heredoc/`python3 -c` to emit HTML into the path, MUST NOT call `update_artifact` with an `html_path` pointing at a file NOT produced by the renderer.
+  - The ONLY supported refresh sequence: update `state.json.live_progress.*` → run renderer → call `update_artifact`.
+  - Rationale enumerated (non-determinism, not data-driven, bypasses tests, bypasses schema, bypasses backward-compat) with the v0.6.x improvisation pattern called out by name.
+  - Three alternatives documented for when the standard dashboard feels insufficient: (a) extend renderer + tests + schema, (b) add new field under `live_progress`, (c) mint a SEPARATE side-car artifact with a different id via `mcp__cowork__create_artifact`. The hook auto-approves any `create_artifact`, so side-cars are permitted; the master `memo-<task_id>-live` artifact's html_path stays exclusive to the renderer.
+  - Enforcement posture (instruction-following discipline + STOP-block reinforcements + future v0.7.2 candidate: mtime check in the renderer to log `live_progress_html_overwrite_detected` events post-hoc).
+
+- **`skills/memo/SKILL.md` Step 1 sub-action 1d-3** (initial mint render) gains a STOP-block immediately above the render bash invocation pointing to the contract's HARD RULE section.
+
+- **`skills/memo/SKILL.md` "downstream responsibility" block** (phase-transition re-render) gains an analogous STOP-block immediately above the 3-step transition sequence.
+
+- **`skills/memo/references/live-progress-contract.md` "Canonical subagent update pattern"** section gets a one-sentence reinforcement that the renderer is the ONLY supported write path for subagents too (not just for the orchestrator).
+
+**Part B — fix `research_sufficiency_followup_pending` phase coverage in renderer.**
+
+- **`scripts/render_live_progress.py` PHASES[6].state_phases** extended from `["research_sufficiency", "currency_check"]` to `["research_sufficiency", "research_sufficiency_followup_pending", "currency_check"]`. The Phase 6.6 user-followup gate is logically a sub-state of "Sufficiency" review (it's the orchestrator asking the user for missing facts identified by the sufficiency reviewer), so pill #7 is the correct visual home.
+- **`scripts/tests/test_render_live_progress.py` `test_maps_each_canonical_phase_to_some_index`** test list extended to include `"research_sufficiency_followup_pending"`. The 18-phase test enumeration now matches the 18-value `current_phase` enum in `state-schema.md` exactly.
+
+**Part C — Manifest hygiene.**
+
+- v0.7.0 had a manifest-match drift: `.claude-plugin/plugin.json` was at `0.7.0` but `README.md` badge still said `0.6.3`. Fixed in v0.7.1 along with the install-line zip filename. Now all three (plugin.json version, README badge, README install line) match `0.7.1` and the `dist/memoforge-0.7.1.zip` artifact.
+
+### Tests
+
+54 renderer tests pass (was 54 in v0.7.0; +0 new but Phase 6 sub-test enum count is now 18 values vs 17). Smoke-test:
+```
+python -m unittest scripts.tests.test_render_live_progress -v
+```
+Full suite (`python -m unittest discover -s scripts/tests`): 137 tests pass.
+
+### Manual cross-check performed for v0.7.1
+
+A defensive cross-check verified that every `current_phase` enum value in `state-schema.md` (18 values) is reachable in `render_live_progress.py`'s `PHASES[].state_phases ∪ TERMINAL_PHASES ∪ REVISION_LOOP_PHASES` set (also 18 values; no missing, no extra). Also verified every `live_progress.*` field the renderer reads (`active_subagents`, `active_subagent` backcompat, `source_counts`, `topic`, `started_at_iso`, `phase_started_at_iso`, `timeline`, `artifact_id`, `html_path`) has at least one writer in the codebase. No other dashboard-data drift detected.
+
+### Effect on users
+
+**Discipline change (Part A):** future production runs should no longer show the "flicker" where the dashboard briefly displays a custom rich layout (with per-researcher DONE/RUNNING badges and case citations) for a few seconds before reverting to the standard renderer output on the next phase transition. Orchestrators following v0.7.1 prose will stay on the renderer-canonical layout consistently. If improvisation is observed in a future run, that is a bug to file against this contract — not new desired behaviour.
+
+**Bug fix (Part B):** when sufficiency reviewer returns `targeted_followup_needed` with `main-session` blocking_gaps and the Phase 6.6 user-followup gate fires, the dashboard now correctly shows pill #7 "Sufficiency" as the current phase (yellow-pulsing), pills #1–#6 as completed, and pills #8–#13 as future. "6 of 13 phases complete" instead of the broken "0 of 13".
+
+### Manifest match
+
+`.claude-plugin/plugin.json (0.7.1) === README badge (0.7.1) === README install line (memoforge-0.7.1.zip) === CHANGELOG top entry (0.7.1) === dist/memoforge-0.7.1.zip`.
+
 ## 0.7.0 — 2026-05-26 (cross-run learning + Lessons Studio)
 
 **The plugin now accumulates lessons across memo tasks and exposes them for one-click apply/reject via a new Lessons Studio skill. This is the first release where the pipeline LEARNS from its own production history — what kinds of blocking issues recur, which intake questions historically prevent Phase 6.6 follow-ups, which MCP queries consistently fall through to WebFetch fallback. No content from any specific memo crosses tasks; only structural signals (counts, categories, scores, query patterns) accumulate. All learning artifacts live under `~/.claude/plugin-data/memoforge/` — the plugin install dir is never modified at runtime.**

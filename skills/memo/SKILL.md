@@ -230,6 +230,8 @@ Atomic write (temp + rename) per the state-schema contract.
 
 **Sub-action 1d-3: Render the initial HTML.**
 
+> **HARD RULE — `live-progress.html` is owned by `render_live_progress.py` (v0.7.1+).** The renderer below is the ONLY writer of `<work_dir>/live-progress.html`. Do NOT `Write` / `Edit` this file directly with custom HTML constructed inline. Do NOT use Bash `cat` / `echo` / heredoc / `python3 -c` to emit HTML into this path. If the standard dashboard output ever feels insufficient (e.g. you want richer per-researcher status after a subagent returns), add a new field to `state.json.live_progress`, extend `render_live_progress.py` + tests + `state-schema.md`, and ship — DO NOT improvise inline HTML. See `references/live-progress-contract.md` §"HARD RULE — `<work_dir>/live-progress.html` is owned by `render_live_progress.py`" for the full contract, rationale, and the recommended alternative (mint a SEPARATE side-car artifact with a different id when you genuinely need a one-off rich view).
+
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}"/scripts/render_live_progress.py \
   --state-json "<state.json absolute path>" \
@@ -349,6 +351,8 @@ or
 > The initial mint of the live-progress master artifact has been moved to **Step 1 sub-step 1d (Mint live-progress master artifact)** as of v0.5.6 — bundled with the non-skippable Task setup rather than as a separate step. See sub-step 1d above for the mint procedure. The downstream-responsibility block below describes what the orchestrator does at every SUBSEQUENT phase transition (Phase 1 → 2, Phase 4 → 5, Phase 7 → 7.5, etc.).
 
 **MANDATORY — orchestrator's downstream responsibility at every phase transition.** At every `current_phase` change later in the pipeline, the orchestrator MUST execute the following sequence as ONE atomic action (treat it the same as the existing TodoWrite + mark_chapter mantras at phase transitions):
+
+> **HARD RULE reminder — `live-progress.html` is owned by `render_live_progress.py` (v0.7.1+).** Step 2 below runs the renderer. That is the ONLY way the file gets refreshed at this transition. Do NOT, even when a subagent just returned with rich data you'd like to surface (per-researcher counts, citation lists, mediator iteration scores), construct custom HTML inline and Write it to `live-progress.html`. New data flows through `state.json.live_progress.*` + the renderer + `state-schema.md` — never inline HTML. If you genuinely need a one-off rich view at this moment, mint a SEPARATE side-car artifact via `mcp__cowork__create_artifact` with a different id (e.g. `memo-<task_id>-research-snapshot`). Full contract, rationale, and side-car artifact pattern in `references/live-progress-contract.md` §"HARD RULE — `<work_dir>/live-progress.html` is owned by `render_live_progress.py`".
 
 1. Update `state.json` (atomic write — temp + rename) to:
    - Set the previous phase's `live_progress.timeline[last].completed_at_iso = NOW`.

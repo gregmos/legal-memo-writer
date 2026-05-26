@@ -18,6 +18,47 @@ v0.5.0 resolves postmortem §9 with a different placement: **`update_artifact` c
 
 4. **Terminal phases** (orchestrator) — at `done` / `failed` / `cancelled_by_user`, orchestrator does a final `update_artifact` with `--status-tag` set appropriately ("delivered", "failed", "cancelled"). The dashboard's CSS pulse stops in terminal state.
 
+## HARD RULE — `<work_dir>/live-progress.html` is owned by `render_live_progress.py` (v0.7.1+)
+
+**The renderer at `scripts/render_live_progress.py` is the ONLY writer of `<work_dir>/live-progress.html`.** No other code path — orchestrator, subagent, hook, helper script — may write to this file.
+
+Specifically, the orchestrator and every subagent MUST NOT:
+
+- Use the `Write` tool to overwrite `live-progress.html` with custom HTML constructed inline (in an agent message body or a Bash heredoc).
+- Use the `Edit` tool to mutate sections of `live-progress.html`.
+- Use a `Bash` cat / printf / echo / tee / heredoc / `python3 -c` to emit HTML directly into `live-progress.html`.
+- Call `mcp__cowork__update_artifact` with an `html_path` pointing at a file that was NOT produced by `render_live_progress.py` on this same render call.
+
+The ONLY supported way to refresh the dashboard is the three-step sequence (referenced from "How the channel works" §2 above):
+
+1. **Update `state.json.live_progress.*` fields** (timeline, active_subagents, source_counts, topic, phase_started_at_iso, etc.) via atomic Edit per `state-schema.md`.
+2. **Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/render_live_progress.py" --state-json ... --current-step "..." --output <html_path>`** (this is the only tool that may write to `<html_path>`; it atomically writes `.tmp` then renames).
+3. **Call `mcp__cowork__update_artifact(id=<artifact_id>, html_path=<html_path>, update_summary=...)`** so Cowork re-reads the refreshed file.
+
+### Why this rule exists
+
+Production runs on v0.6.x–v0.7.0 showed orchestrators occasionally constructing custom HTML inline — typically after a heavy subagent returned (e.g. `case-law-researcher` with a rich `final_response_summary`) the orchestrator built a research-phase-specific dashboard with `DONE`/`RUNNING` badges per researcher and per-step citations, wrote it to `live-progress.html`, then called `update_artifact`. Visually the result was sometimes nicer than the standard renderer output, BUT:
+
+- **Non-deterministic.** Re-running the same task with identical inputs produces a different dashboard depending on whether the orchestrator improvises.
+- **Not data-driven.** The custom HTML embeds research findings literally (case citations, gap text) that aren't in `state.json`. The renderer cannot reproduce them on the next render call, so as soon as the next subagent or phase transition fires `render_live_progress.py` via the canonical flow, the rich view disappears — the user sees the dashboard "flicker" between rich-custom and standard-renderer views in the same run.
+- **Bypasses tests.** `scripts/tests/test_render_live_progress.py` covers the renderer's invariants (flat design, UTF-8 meta, JS ticker block, chip-rendering rules, phase-pill coverage). Inline HTML bypasses every one.
+- **Bypasses schema.** The renderer reads ONLY documented `state.json.live_progress.*` fields (see `state-schema.md`). Inline HTML reads from agent return summaries / orchestrator scratch which have no schema contract — there is no audit trail for "what data the dashboard showed at moment X".
+- **Bypasses backward-compat.** v0.6.2 added the `active_subagents` LIST migration with a backward-compat path for the legacy `active_subagent` STRING. Inline HTML doesn't go through the renderer's compat logic — so a legacy task that resumes on a newer plugin gets weird rendering whenever an orchestrator improvises.
+
+### What to do INSTEAD when the standard dashboard feels insufficient
+
+- **Want a different visual?** Edit `scripts/render_live_progress.py` + `scripts/tests/test_render_live_progress.py`. Bump plugin version. Ship. The renderer is small (~780 lines) and self-contained; visual changes land in one file plus tests.
+- **Want more data on the dashboard?** Add a new field under `state.json.live_progress` documented in `state-schema.md`, populate it from the appropriate writer (orchestrator at a phase boundary, or a specific subagent on its done emission), then extend the renderer to surface it. The v0.6.0 `source_counts` (written by `source-pack-builder`) and v0.6.2 `topic` (written by orchestrator at Step 1d) additions are the canonical examples — both took fewer than 100 LoC across the three files.
+- **Want a one-off rich view at a specific moment?** Use `mcp__cowork__create_artifact` to mint a SEPARATE artifact with a different id (e.g. `memo-<task_id>-research-summary` or `memo-<task_id>-mediator-iter2`). Do NOT touch the master `memo-<task_id>-live` artifact's `html_path` — that file remains the renderer's exclusive domain. The plugin hook auto-approves `mcp__cowork__create_artifact` for any id, so a one-off side-car artifact is permitted; the user sees both artifacts in the sidebar. Document the side-car artifact's purpose in the agent prompt that creates it.
+
+### Enforcement posture
+
+This rule is instruction-following discipline, not a runtime check (the filesystem permits any write). The contract relies on three reinforcement layers:
+
+1. **HARD RULE block in this contract document** (the canonical reference every agent file points to).
+2. **STOP-block reminders at the two SKILL.md render call sites**: Step 1d-3 (initial mint render) and the downstream-responsibility block (phase-transition re-render). These are the two places where the orchestrator is most tempted to improvise; the reminders sit immediately above the canonical render invocation.
+3. **Future hardening (v0.7.2+ candidate, NOT yet implemented):** `render_live_progress.py` can check the existing `live-progress.html`'s mtime against the renderer's last-written timestamp. If the existing file is newer than the renderer's last write, log a `live_progress_html_overwrite_detected` event to `events.jsonl`. Non-blocking observation (the renderer still proceeds with its atomic write), but the audit trail catches improvisation post-hoc.
+
 ## Files and tools
 
 | File / Tool | Purpose |
@@ -35,7 +76,7 @@ This rule preserves the plugin's "best-effort live progress" posture: the pipeli
 
 ## Canonical subagent update pattern
 
-Every instrumented subagent uses this exact Bash invocation at its step boundaries. The agent prompt documents which step boundaries trigger an update (per-issue, per-MCP-query, etc.) — this block is the mechanical pattern.
+Every instrumented subagent uses this exact Bash invocation at its step boundaries. The agent prompt documents which step boundaries trigger an update (per-issue, per-MCP-query, etc.) — this block is the mechanical pattern. **The renderer is the ONLY supported way for a subagent to write `<work_dir>/live-progress.html`** (see HARD RULE above) — do not Write/Edit the file directly with custom HTML, even if your subagent has richer data than the standard chips show.
 
 ```bash
 # Subagent step-boundary live-progress update.
