@@ -67,3 +67,89 @@ Logging is **best-effort**. If a log write fails (path unwritable, disk error, B
 - Stack traces or tool error dumps (these belong in `events.jsonl` at the orchestrator level if escalated).
 
 If you find yourself wanting to log >120 chars on a single `detail=`, the right move is usually a shorter summary plus a file path the user can open if they want full context.
+
+## Tier 2 — Structured tool-call telemetry (v0.7.0+)
+
+In addition to the plain-text human-readable log above (Tier 1), agents that make external tool calls (MCP, WebSearch, WebFetch) ALSO append a structured JSONL entry per call to a sibling file:
+
+`<work_dir>/logs/<your-name>-tools.jsonl`
+
+Tier 1 is for human debugging during a run. Tier 2 is machine-readable telemetry that feeds the cross-run learning system (`agents/lessons-extractor.md` at Phase 11.5). Both files are best-effort and independent — a failure in one does not affect the other.
+
+### Schema (one JSON object per line)
+
+```jsonc
+{
+  "ts": "<ISO 8601 UTC, e.g. 2026-05-26T14:23:11Z>",
+  "tool": "<full tool name, e.g. mcp__plugin_memoforge_legal-data-hunter__search | WebSearch | WebFetch>",
+  "category": "mcp | websearch | webfetch",
+  "query": "<short summary of args, ≤120 chars; NEVER the full argument blob>",
+  "topic_key": "<short kebab-case slug for grouping reformulation attempts, e.g. eu-aiact-art-14>",
+  "result": "ok | empty | error | ratelimited | timeout",
+  "latency_ms": <int>,
+  "result_size_hint": null | <int>,                   // e.g. number of search results returned, or response byte length for WebFetch
+  "selected_url": null | "<URL chosen for follow-up fetch, if applicable>",
+  "fallback_used": null | "<short kebab-case reason if this was a fallback path>",
+  "iteration": null | <int>                            // state.json.current_iteration if inside revision_loop, else null
+}
+```
+
+All fields are required to be present (use `null` where not applicable). Unknown values pass through as `null` — do not invent.
+
+### Which agents emit Tier 2
+
+- **Researchers** (statutory, case-law, doctrinal) — every MCP call (Legal Data Hunter, CourtListener), every WebSearch, every WebFetch.
+- **currency-checker** — every MCP/web call used to verify source currency.
+- **citation-auditor** — every WebFetch call used to verify citations against canonical sources.
+
+Reviewers (logic/clarity/style/counterargument/research-sufficiency/client-readiness) and orchestration agents (revision-mediator, source-pack-builder, memo-writer when it stays inside the work_dir, fact-assumption-analyst) do not make external tool calls. They do not emit Tier 2.
+
+If memo-writer or another agent makes an unexpected WebFetch for citation lookup, it MAY emit Tier 2 — same schema, same best-effort discipline.
+
+### How to emit
+
+Agents that inherit `Bash` — append via `Bash`:
+
+```bash
+mkdir -p "$WORK_DIR/logs"
+printf '{"ts":"%s","tool":"%s","category":"%s","query":"%s","topic_key":"%s","result":"%s","latency_ms":%d,"result_size_hint":%s,"selected_url":%s,"fallback_used":%s,"iteration":%s}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  "<tool>" "<category>" "<query summary>" "<topic_key>" "<result>" <latency_ms> \
+  "<size or null>" "<\"URL\" or null>" "<\"reason\" or null>" "<int or null>" \
+  >> "$WORK_DIR/logs/<your-name>-tools.jsonl"
+```
+
+Agents with restricted toolset (no Bash) — use the same cumulative `Write` pattern documented for Tier 1: maintain an in-memory list of JSONL strings, `Write` the full content on each emission.
+
+Atomicity is NOT required (single JSONL line writes are effectively atomic on POSIX append; on Windows the append boundary is usually safe at this granularity, and a torn line gets discarded by the extractor's JSON parser).
+
+### Topic-key heuristics
+
+`topic_key` is the join field the extractor uses to group reformulation attempts. Compute it deterministically:
+
+- **Statute searches:** `<jurisdiction>-<instrument-shortname>-<article>`, e.g. `eu-aiact-art-14`, `us-cfaa`, `cy-data-protection-art-7`.
+- **Case-law searches:** `<jurisdiction>-<court>-<topic-keyword>`, e.g. `eu-cjeu-schrems`, `us-scotus-citizens-united`.
+- **Doctrinal searches:** `<topic-keyword-bigram>`, e.g. `dpa-clickwrap`, `joint-controllership`.
+- **General WebSearch:** bucket by leading 3-4 keywords lowercased and hyphenated, e.g. `ai-act-art-14`, `gdpr-art-6-paragraph-1f`.
+
+Approximate keys are fine. The extractor uses `topic_key` only for cross-task grouping and tolerates noise.
+
+### Failure mode
+
+Best-effort, same as Tier 1. If a Tier-2 write fails (path unwritable, disk error, malformed args, etc.) — swallow the error and continue. Do NOT retry. Do NOT escalate. Do NOT block the agent's actual work.
+
+### What NOT to log in Tier 2
+
+- The full argument blob of an MCP call (some MCPs accept large JSON; summarize in ≤120 chars).
+- The full response body (only `result_size_hint` int, never the bytes).
+- PII or user-query text in `query` or `topic_key` (summarize the search intent, not the user's words).
+- Stack traces or error dumps (use `result: "error"` and let `events.jsonl`'s orchestrator-level events carry the diagnostic detail).
+
+### Why this is separate from Tier 1
+
+- **Machine-readable.** Tier 2 is parsed deterministically by the extractor; Tier 1 is prose for humans.
+- **Append-only with no rewrite cost.** Bash `>>` is O(1) per line; Tier 1's cumulative-write pattern (for restricted-toolset agents) is O(N) per line.
+- **Different audience.** Tier 1 = the user watching a long-running block. Tier 2 = the lessons-extractor synthesizing cross-task patterns.
+- **Different lifetime.** Tier 1 is debug-only and discarded after task completion. Tier 2 is read once by lessons-extractor at Phase 11.5, then can be discarded with the rest of the task work_dir.
+
+A single tool call MAY produce one Tier-1 line AND one Tier-2 line — they are independent and serve different consumers.

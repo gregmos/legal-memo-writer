@@ -1,14 +1,14 @@
 ---
 name: style
-description: Manage custom style and formatting profiles for legal memos. Sub-actions new / list / use / show / delete. Use only when explicitly invoked via /legal-memo-writer:style.
+description: Manage custom style and formatting profiles for legal memos. Sub-actions new / list / use / show / delete. Use only when explicitly invoked via /memoforge:style.
 argument-hint: "[new <name> [--examples <paths>] [--rules <text-or-path>] [--mode brief|full] | list | use <name> | show <name> | delete <name>]"
 disable-model-invocation: true
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
 ---
 
-# legal-memo-writer / style skill
+# memoforge / style skill
 
-You manage the user's custom style profiles. A profile is a directory under `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/` containing `prose-style.md` (always), `template.md` (sometimes), `meta.json`, and supporting files. The `memo` skill reads these at Phase 1.5 when the user picks a profile for a new memo.
+You manage the user's custom style profiles. A profile is a directory under `~/.claude/plugin-data/memoforge/profiles/<name>/` containing `prose-style.md` (always), `template.md` (sometimes), `meta.json`, and supporting files. The `memo` skill reads these at Phase 1.5 when the user picks a profile for a new memo.
 
 **Authority hierarchy** (highest wins, same shape as `memo` skill):
 
@@ -30,7 +30,7 @@ Split `$ARGUMENTS` by whitespace. The first token is the **action**:
 - `delete <name>` — delete a profile. See §`delete`.
 - (no action / empty `$ARGUMENTS` / `menu` / `help`) — go to §`menu` (interactive).
 
-For any other first token, print: `Unknown action. Use new | list | use | show | delete, or run /legal-memo-writer:style with no arguments for the interactive menu.` End turn.
+For any other first token, print: `Unknown action. Use new | list | use | show | delete, or run /memoforge:style with no arguments for the interactive menu.` End turn.
 
 ## `menu` — interactive entry point
 
@@ -46,7 +46,7 @@ When `$ARGUMENTS` is empty, ask the user what they want to do. Use `AskUserQuest
   - label: "Show profile contents", description: "Print prose-style.md and template.md of a profile"
   - label: "Delete a profile", description: "Remove a profile permanently"
 
-If the host has no `AskUserQuestion`, fall back to a plain-text prompt listing the same options and end the turn. The user then re-runs `/legal-memo-writer:style <action> ...` with the chosen action.
+If the host has no `AskUserQuestion`, fall back to a plain-text prompt listing the same options and end the turn. The user then re-runs `/memoforge:style <action> ...` with the chosen action.
 
 Branch on the answer and continue inline to the matching section below (§`new`, §`list`, etc.).
 
@@ -110,7 +110,7 @@ Parse the remaining `$ARGUMENTS` flags:
   - For examples: "Paths to example memos (space-separated, or a directory):" via AskUserQuestion (free-text via Other).
   - For rules: "Provide rules as text (paste below) or path to a .md/.txt file:" via AskUserQuestion (free-text via Other).
 
-  Without `AskUserQuestion`: print the prompts as text, end the turn, and have the user re-invoke `/legal-memo-writer:style new <name> --examples ... --rules ...` with the values.
+  Without `AskUserQuestion`: print the prompts as text, end the turn, and have the user re-invoke `/memoforge:style new <name> --examples ... --rules ...` with the values.
 
 ### Step 3 — Validate paths (if examples were provided)
 
@@ -188,12 +188,12 @@ Ask:
 - **Header:** "Default"
 - **multiSelect:** false.
 - Options:
-  - label: "Yes — make it default", description: "Next /legal-memo-writer:memo will preselect this profile"
-  - label: "No — keep current default", description: "You can change later with /legal-memo-writer:style use <name>"
+  - label: "Yes — make it default", description: "Next /memoforge:memo will preselect this profile"
+  - label: "No — keep current default", description: "You can change later with /memoforge:style use <name>"
 
 If "Yes": run `set-default <name>` via Bash. Print confirmation.
 
-If "No": print a one-line note: `Profile saved. Use /legal-memo-writer:style use <name> to select it later.`
+If "No": print a one-line note: `Profile saved. Use /memoforge:style use <name> to select it later.`
 
 End turn.
 
@@ -214,9 +214,9 @@ my-firm-brief    | 2026-05-25 | examples | brief  | yes      | ✓       | en
 acme-rules-full  | 2026-05-20 | rules    | full   | no       |         | en
 ```
 
-If the list is empty, print: `No profiles yet. Create one with /legal-memo-writer:style new <name>.`
+If the list is empty, print: `No profiles yet. Create one with /memoforge:style new <name>.`
 
-If any profile has `valid=false`, print a warning line below the table: `⚠️ <name>: <first error message>`. Suggest re-running `/legal-memo-writer:style delete <name>` and creating fresh.
+If any profile has `valid=false`, print a warning line below the table: `⚠️ <name>: <first error message>`. Suggest re-running `/memoforge:style delete <name>` and creating fresh.
 
 End turn.
 
@@ -228,7 +228,7 @@ If `$ARGUMENTS` is `use --clear`:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" clear-default
 ```
 
-Print: `Default profile cleared. /legal-memo-writer:memo will offer all profiles next time.` End turn.
+Print: `Default profile cleared. /memoforge:memo will offer all profiles next time.` End turn.
 
 Otherwise, `<name>` is the second token. Validate and set:
 
@@ -236,9 +236,9 @@ Otherwise, `<name>` is the second token. Validate and set:
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_style_profile.py" set-default "<name>"
 ```
 
-If exit code is non-zero, print the stderr message (`profile not found: <name>` is the common case — suggest `/legal-memo-writer:style list`).
+If exit code is non-zero, print the stderr message (`profile not found: <name>` is the common case — suggest `/memoforge:style list`).
 
-On success, print: `Default profile set to '<name>'. /legal-memo-writer:memo will preselect it for new memos.` End turn.
+On success, print: `Default profile set to '<name>'. /memoforge:memo will preselect it for new memos.` End turn.
 
 ## `show` — print profile contents
 
@@ -306,7 +306,7 @@ Print confirmation: `Profile '<name>' deleted.` End turn.
 
 ## Hard constraints
 
-- Never write to `~/.claude/plugin-data/legal-memo-writer/` directly — always go through `scripts/resolve_style_profile.py`. The script is the canonical write path: it validates names, writes atomically, and keeps the default-file consistent on delete.
+- Never write to `~/.claude/plugin-data/memoforge/` directly — always go through `scripts/resolve_style_profile.py`. The script is the canonical write path: it validates names, writes atomically, and keeps the default-file consistent on delete.
 - Never modify `state.json` of an in-flight memo task. This skill manages user-level style profiles only — it has no relationship to any specific memo task in progress.
 - Never call `Agent` for anything other than `style-extractor` from this skill. Subagents for the memo pipeline are dispatched by `skills/memo/SKILL.md`, not from here.
 - All user-facing strings (chat output, AskUserQuestion text) are English. Profile body content language is decided by the extractor based on the inputs.

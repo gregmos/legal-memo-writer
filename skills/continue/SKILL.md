@@ -1,12 +1,12 @@
 ---
 name: continue
-description: Resume an interrupted legal memo task. Use only when explicitly invoked via /legal-memo-writer:continue with the task_id, optionally followed by one of answer, followup, proceed, approve, cancel, or edit.
+description: Resume an interrupted legal memo task. Use only when explicitly invoked via /memoforge:continue with the task_id, optionally followed by one of answer, followup, proceed, approve, cancel, or edit.
 argument-hint: "<task_id> [answer: <facts>|followup: <answers>|proceed|approve|continue|cancel|edit: <instructions>]"
 disable-model-invocation: true
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion, WebFetch, WebSearch, mcp__*, mcp__plugin_legal-memo-writer_courtlistener__*, mcp__plugin_legal-memo-writer_legal-data-hunter__*
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion, WebFetch, WebSearch, mcp__*, mcp__plugin_memoforge_courtlistener__*, mcp__plugin_memoforge_legal-data-hunter__*
 ---
 
-# legal-memo-writer / continue skill
+# memoforge / continue skill
 
 You are the main session resuming an interrupted legal memo task. This is the **explicit recovery path** when automatic reentry on the `memo` skill did not pick up the previous state (closed tab, new session, long pause).
 
@@ -23,9 +23,9 @@ The plugin used to stage tasks under `${CLAUDE_PLUGIN_DATA}/work/` then copy the
 Resolution order (first writable that contains a matching `<task_id>` directory wins):
 
 1. `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER/<task_id>/` (plugin option set by the user).
-2. `$LEGAL_MEMO_OUTPUT_FOLDER/<task_id>/` (environment variable).
-3. `$HOME/Documents/legal-memos/<task_id>/` (default for desktop installs).
-4. `outputs/legal-memo-work/<task_id>/` (sandbox fallback, relative to CWD).
+2. `$MEMOFORGE_OUTPUT_FOLDER/<task_id>/` (environment variable).
+3. `$HOME/Documents/memoforge/<task_id>/` (default for desktop installs).
+4. `outputs/memoforge-work/<task_id>/` (sandbox fallback, relative to CWD).
 5. `<WORK_DIR>/` (legacy fallback for tasks created before v0.0.29).
 
 For each candidate, check via `Bash test -d "<candidate>"` then `test -f "<candidate>/state.json"`. The first match is the working directory; bind it to `WORK_DIR` and use it for all subsequent Read/Write/Bash operations.
@@ -44,7 +44,7 @@ Write the value back to `state.json.rel_work_dir` atomically (write `.tmp`, mv).
 If `$ARGUMENTS` is empty:
 1. Scan all four candidate parents (1-4 above) for `memo-*` directories.
 2. For each found `task_id`, **call `Read` on `<resolved_path>/state.json`** (this gives Cowork's UI an artifact card for the state file so the user can click it open) and **print one row** as plain text: `<task_id> | <current_phase> | <created_at> | <user_query truncated to 100 chars> | path: <state.json.rel_work_dir>/`. Don't bother with markdown link syntax — it doesn't render as clickable in chat. The `Read` call above is what makes the file accessible.
-3. Ask the user to re-invoke with `/legal-memo-writer:continue <task_id>`.
+3. Ask the user to re-invoke with `/memoforge:continue <task_id>`.
 4. End turn.
 
 If `task_id` is non-empty but no candidate parent contains the directory:
@@ -159,7 +159,7 @@ Before executing the phase branch, print a resume Progress block as plain assist
 ```
 **Progress — <task_id>**
 - Current phase: `<current_phase>`
-- Resuming from: `/legal-memo-writer:continue`
+- Resuming from: `/memoforge:continue`
 - Next: <what this invocation will do>
 - Work directory: <state.json.rel_work_dir>
 - Notes: <iteration N if revision_loop; blocker count if relevant; key files for this phase: <comma-separated list from mapping below>>
@@ -308,15 +308,15 @@ Resuming task `<task_id>`.
 Research plan: plan.md (see artifact card above; full path: <state.json.rel_work_dir>/plan.md)
 
 Review and confirm with one of:
-- `/legal-memo-writer:continue <task_id> approve` — proceed as is
-- `/legal-memo-writer:continue <task_id> edit: <instructions>` — apply edits
-- `/legal-memo-writer:continue <task_id> cancel` — stop
+- `/memoforge:continue <task_id> approve` — proceed as is
+- `/memoforge:continue <task_id> edit: <instructions>` — apply edits
+- `/memoforge:continue <task_id> cancel` — stop
 
 The short plain-text replies `approve`, `edit: <instructions>`, and `cancel` may work in the same session, but explicit `/continue ...` is more reliable.
 ```
 
-**Anti-loop guard:** if a user has typed `/legal-memo-writer:continue <task_id>` 3+ times in a row without sending approve/edit/cancel between them, print:
-> I see several `/legal-memo-writer:continue` calls in a row without an explicit response. Please use one of: `/legal-memo-writer:continue <task_id> approve`, `/legal-memo-writer:continue <task_id> edit: <instructions>`, or `/legal-memo-writer:continue <task_id> cancel`.
+**Anti-loop guard:** if a user has typed `/memoforge:continue <task_id>` 3+ times in a row without sending approve/edit/cancel between them, print:
+> I see several `/memoforge:continue` calls in a row without an explicit response. Please use one of: `/memoforge:continue <task_id> approve`, `/memoforge:continue <task_id> edit: <instructions>`, or `/memoforge:continue <task_id> cancel`.
 And end turn.
 
 ### `research`
@@ -354,9 +354,9 @@ Three sub-paths, evaluated in order:
 Intake questions: intake-questions.md (see artifact card above; full path: <state.json.rel_work_dir>/checkpoints/intake-questions.md)
 
 Reply with one of:
-- `/legal-memo-writer:continue <task_id> answer: <your answers>`
-- `/legal-memo-writer:continue <task_id> proceed`
-- `/legal-memo-writer:continue <task_id> cancel`
+- `/memoforge:continue <task_id> answer: <your answers>`
+- `/memoforge:continue <task_id> proceed`
+- `/memoforge:continue <task_id> cancel`
 ```
 
 ### `mode_pick_pending`
@@ -457,8 +457,8 @@ Read `state.json.sufficiency_followup.questions`. Re-render the follow-up gate:
 
 Do NOT count this re-show against `attempts.research_followup` — that was already incremented atomically when Phase 6.6 first fired.
 
-**Anti-loop guard:** if a user has typed `/legal-memo-writer:continue <task_id>` 3+ times in a row without sending followup/proceed/cancel between them, print:
-> I see several `/legal-memo-writer:continue` calls in a row without a follow-up response. Please use one of: `/legal-memo-writer:continue <task_id> followup: 1A 2C 3:my answer`, `/legal-memo-writer:continue <task_id> proceed`, or `/legal-memo-writer:continue <task_id> cancel`.
+**Anti-loop guard:** if a user has typed `/memoforge:continue <task_id>` 3+ times in a row without sending followup/proceed/cancel between them, print:
+> I see several `/memoforge:continue` calls in a row without a follow-up response. Please use one of: `/memoforge:continue <task_id> followup: 1A 2C 3:my answer`, `/memoforge:continue <task_id> proceed`, or `/memoforge:continue <task_id> cancel`.
 And end turn.
 
 ### `currency_check`
@@ -570,7 +570,7 @@ End turn. Do NOT re-run the pipeline.
 
 ### `cancelled_by_user`
 
-Print: "Task `<task_id>` was cancelled. To start a fresh task, use `/legal-memo-writer:memo`. To delete this working directory, remove the folder at <state.json.rel_work_dir>/."
+Print: "Task `<task_id>` was cancelled. To start a fresh task, use `/memoforge:memo`. To delete this working directory, remove the folder at <state.json.rel_work_dir>/."
 
 End turn.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate legal-memo-writer reviewer JSON outputs.
+"""Validate memoforge reviewer JSON outputs.
 
 The revision loop runs N reviewers in parallel (N = 3 in Brief mode, 5 in
 Full). This script reads the active reviewer set from

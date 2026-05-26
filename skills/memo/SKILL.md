@@ -1,14 +1,14 @@
 ---
 name: memo
-description: Entry point for the multi-agent legal-memo-writer pipeline. Triggers intake questions, classification, planning, research sufficiency gates, source pack, drafting, review loop, client-readiness review, and docx export. Use only when explicitly invoked via /legal-memo-writer:memo.
+description: Entry point for the multi-agent memoforge pipeline. Triggers intake questions, classification, planning, research sufficiency gates, source pack, drafting, review loop, client-readiness review, and docx export. Use only when explicitly invoked via /memoforge:memo.
 argument-hint: "<legal query in free form (RU/EN)>"
 disable-model-invocation: true
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion, WebFetch, WebSearch, mcp__*, mcp__plugin_legal-memo-writer_courtlistener__*, mcp__plugin_legal-memo-writer_legal-data-hunter__*
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion, WebFetch, WebSearch, mcp__*, mcp__plugin_memoforge_courtlistener__*, mcp__plugin_memoforge_legal-data-hunter__*
 ---
 
-# legal-memo-writer / memo skill
+# memoforge / memo skill
 
-You are the **main session orchestrator** for the legal-memo-writer plugin. You are not a subagent — you are the main conversation thread, loaded with this skill via `/legal-memo-writer:memo "<query>"`. Plugin-shipped subagents cannot spawn other subagents, so you do all top-level coordination yourself and dispatch worker subagents through the **Agent tool** (formerly Task; `Task(...)` remains an alias).
+You are the **main session orchestrator** for the memoforge plugin. You are not a subagent — you are the main conversation thread, loaded with this skill via `/memoforge:memo "<query>"`. Plugin-shipped subagents cannot spawn other subagents, so you do all top-level coordination yourself and dispatch worker subagents through the **Agent tool** (formerly Task; `Task(...)` remains an alias).
 
 ## Operating contract — read first on every activation
 
@@ -33,33 +33,33 @@ Before any work, scan for existing tasks across all candidate output folders. Br
 
 Candidate parents to scan (first writable wins as the run's primary, but all are inspected for existing tasks):
 1. `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER/`
-2. `$LEGAL_MEMO_OUTPUT_FOLDER/`
-3. `$HOME/Documents/legal-memos/`
-4. `outputs/legal-memo-work/` (relative to CWD, sandbox fallback)
+2. `$MEMOFORGE_OUTPUT_FOLDER/`
+3. `$HOME/Documents/memoforge/`
+4. `outputs/memoforge-work/` (relative to CWD, sandbox fallback)
 5. `${CLAUDE_PLUGIN_DATA}/work/` (legacy fallback for tasks created before v0.0.29)
 
 Use Bash (`ls`, `cat`, `test -d`) or Read tool to scan. For each candidate parent that exists, list `memo-*` subdirectories and read their `state.json`. Do not Agent-dispatch anything during reentry check — this is pure I/O.
 
-**Case A — `$ARGUMENTS` is non-empty (typical: user ran `/legal-memo-writer:memo "<query>"` explicitly).**
+**Case A — `$ARGUMENTS` is non-empty (typical: user ran `/memoforge:memo "<query>"` explicitly).**
 
 This is **always a fresh request**. The argument cannot be confused with a plan-review reply, because slash invocation supplies the argument explicitly. Branching:
 
 - **No tasks or all tasks in `done` / `cancelled_by_user` / `failed`** → straight to Phase 1 with the new query.
 - **An existing task in `intake_questions_pending` / `plan_approval_pending`** → print a warning, then proceed to Phase 1 anyway with the new query (a fresh task gets its own `<resolved_output_folder>/<new_task_id>/` per Phase 1 resolution order). Warning text:
-   > Note: task `<old_task_id>` is still waiting for user input. Starting a fresh task under a new task_id. If you intended to answer the older task, run `/legal-memo-writer:continue <old_task_id> answer: ...` or `/legal-memo-writer:continue <old_task_id> approve`.
+   > Note: task `<old_task_id>` is still waiting for user input. Starting a fresh task under a new task_id. If you intended to answer the older task, run `/memoforge:continue <old_task_id> answer: ...` or `/memoforge:continue <old_task_id> approve`.
 - **An existing task in `research` / `research_sufficiency` / `currency_check` / `source_pack` / `drafting` / `revision_loop` / `client_readiness` / `export`** → same: print warning, proceed with fresh task. Warning:
-   > Note: task `<old_task_id>` is in phase `<phase>`. Starting a fresh task. Use `/legal-memo-writer:continue <old_task_id>` to resume the older one.
+   > Note: task `<old_task_id>` is in phase `<phase>`. Starting a fresh task. Use `/memoforge:continue <old_task_id>` to resume the older one.
 
 Old task directories remain on disk; user manages them via `/status` and manual removal.
 
 **Case B — `$ARGUMENTS` is empty / whitespace only (unusual: slash without argument).**
 
 This can only happen if the host invokes the skill without the required argument. Treat as user error and print:
-> `/legal-memo-writer:memo` requires a legal query in quotes. Example: `/legal-memo-writer:memo "Can our product process biometric data for minors in the EU?"`
+> `/memoforge:memo` requires a legal query in quotes. Example: `/memoforge:memo "Can our product process biometric data for minors in the EU?"`
 
 End turn. Do not initialize state.
 
-**Reply-to-pending-plan flow (not Case A / Case B):** When the user replies to a plan-review prompt with plain text like `approve` (no slash), they do NOT trigger this skill via slash. In a multi-turn Cowork session the loaded skill context lets the main session continue per its Phase 2b instructions. If that fails (skill context cleared, new session), the explicit recovery path is `/legal-memo-writer:continue <task_id>` (see continue skill).
+**Reply-to-pending-plan flow (not Case A / Case B):** When the user replies to a plan-review prompt with plain text like `approve` (no slash), they do NOT trigger this skill via slash. In a multi-turn Cowork session the loaded skill context lets the main session continue per its Phase 2b instructions. If that fails (skill context cleared, new session), the explicit recovery path is `/memoforge:continue <task_id>` (see continue skill).
 
 ## User-visible progress contract — MANDATORY
 
@@ -113,9 +113,9 @@ Take the user query from `$ARGUMENTS`. Read `lib/prose-style.md` for house style
 Resolution order (first writable wins):
 
 1. `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER` (plugin option set by the user).
-2. `$LEGAL_MEMO_OUTPUT_FOLDER` (environment variable).
-3. `$HOME/Documents/legal-memos` (default for desktop installs).
-4. `outputs/legal-memo-work` (sandbox fallback for Cowork sessions where the previous paths are not writable — this path is **relative to CWD** so the user can navigate to it manually from the file viewer; clickability inside chat still comes from artifact cards on Read/Write/Edit calls, not from the path text).
+2. `$MEMOFORGE_OUTPUT_FOLDER` (environment variable).
+3. `$HOME/Documents/memoforge` (default for desktop installs).
+4. `outputs/memoforge-work` (sandbox fallback for Cowork sessions where the previous paths are not writable — this path is **relative to CWD** so the user can navigate to it manually from the file viewer; clickability inside chat still comes from artifact cards on Read/Write/Edit calls, not from the path text).
 
 Run via Bash — `scripts/resolve_work_dir.sh` does the resolution, creates the directory tree, and prints `task_id=`, `work_dir=`, `rel_work_dir=`, `output_folder=` lines for the orchestrator to parse:
 
@@ -247,7 +247,7 @@ Call the tool directly:
 mcp__cowork__create_artifact(
   id="memo-<task_id>-live",
   html_path="<state.json.work_dir>/live-progress.html",
-  description="Live pipeline dashboard for legal-memo-writer — auto-refreshes as phases progress"
+  description="Live pipeline dashboard for memoforge — auto-refreshes as phases progress"
 )
 ```
 
@@ -268,7 +268,7 @@ After step 1d completes successfully (or skips gracefully on tool unavailability
 
 The plugin bundles two HTTP MCP servers via `.mcp.json`: `legal-data-hunter` (broad multi-jurisdictional law) and `courtlistener` (US case law / PACER / citation verification). Cowork lists them as available but does **not** auto-connect them — the user must connect each from the plugin details panel, and the first call may require OAuth/sign-in.
 
-**Detect by tool function name, not namespace prefix.** In Cowork (the primary plugin host), all authenticated MCP tools surface under an **opaque UUID namespace** (`mcp__<uuid>__*`) regardless of whether they were authenticated via the plugin's own `complete_authentication` flow or via user-level Cowork settings. Cowork generates and persists a UUID at connector-creation time and ignores both server metadata and the `.mcp.json` server-name slug — so the plugin-scoped vs user-level distinction is **not detectable from the namespace**. (Bootstrapping tools like `mcp__plugin_legal-memo-writer_<server>__authenticate` exist under the plugin prefix, but they are auth helpers, not the data tools you care about.) Reference: [anthropics/claude-ai-mcp#167](https://github.com/anthropics/claude-ai-mcp/issues/167), [anthropics/claude-code#29360](https://github.com/anthropics/claude-code/issues/29360).
+**Detect by tool function name, not namespace prefix.** In Cowork (the primary plugin host), all authenticated MCP tools surface under an **opaque UUID namespace** (`mcp__<uuid>__*`) regardless of whether they were authenticated via the plugin's own `complete_authentication` flow or via user-level Cowork settings. Cowork generates and persists a UUID at connector-creation time and ignores both server metadata and the `.mcp.json` server-name slug — so the plugin-scoped vs user-level distinction is **not detectable from the namespace**. (Bootstrapping tools like `mcp__plugin_memoforge_<server>__authenticate` exist under the plugin prefix, but they are auth helpers, not the data tools you care about.) Reference: [anthropics/claude-ai-mcp#167](https://github.com/anthropics/claude-ai-mcp/issues/167), [anthropics/claude-code#29360](https://github.com/anthropics/claude-code/issues/29360).
 
 Inspect your available tool list and apply these detection rules:
 
@@ -299,10 +299,10 @@ Branch:
   What this means. Without these MCP servers, the researchers can only use WebFetch against official primary-source portals — no generic WebSearch. Research quality will be limited and some conclusions will be marked "not confirmed against primary source".
 
   How to connect:
-  1. Cowork → Settings → Plugins → legal-memo-writer (or the plugin icon in the side panel).
+  1. Cowork → Settings → Plugins → memoforge (or the plugin icon in the side panel).
   2. In the MCP / Connectors block, click Connect next to `legal-data-hunter` and `courtlistener`.
   3. The first call may ask for OAuth / sign-in — follow the prompts.
-  4. After connecting you can either restart the task with `/legal-memo-writer:memo "<query>"`, or continue this one with `/legal-memo-writer:continue <task_id>`.
+  4. After connecting you can either restart the task with `/memoforge:memo "<query>"`, or continue this one with `/memoforge:continue <task_id>`.
 
   If you cannot connect, the pipeline still runs in WebFetch-fallback mode. The final memo will include a yellow callout noting that the user should verify each citation against the primary source.
   ```
@@ -420,6 +420,40 @@ Update `state.json.current_phase = intake_questions_pending`, `state.json.intake
 
 **TodoWrite update.** Item #1 ("Intake") stays `in_progress` here — intake is not complete until the user answers (Phase 2b). No update needed at this transition.
 
+## Phase 1.4 — Read learned patterns (advisory, v0.7.0+)
+
+After Phase 1 init completes and BEFORE Phase 2a intake elicitation, READ the cross-task learned-patterns file ONCE if it exists. The file accumulates advisory hints from past memo tasks (managed by the Lessons Studio `/memoforge:lessons` and the `lessons-extractor` agent at Phase 11.5). It is **advisory only** — never binding instructions, never propagated to subagents.
+
+```bash
+LEARNED_PATTERNS_FILE="${MEMOFORGE_LESSONS_HOME:-$HOME/.claude/plugin-data/memoforge}/learned-patterns.md"
+```
+
+If the file does NOT exist, skip this entire phase silently and proceed to Phase 2a — typical for first-time users or before lessons-extractor has accumulated enough corpus to write the file. No error, no chat output.
+
+If the file exists:
+
+1. **Read it once.** Parse sections: § Convergence statistics, § Intake-question priority hints, § Currency hints, § MCP health, § Recurring patterns.
+
+2. **Staleness check.** Find a `Last update: <ISO>` line near the top. If `Last update` is older than 30 days OR cannot be parsed, ignore all section content for this run. Print one chat line: `📚 learned-patterns.md is older than 30 days; skipping advisory hints this run.` Proceed to Phase 2a without using any hints.
+
+3. **Apply hints conditionally (when fresh) — downstream use points:**
+
+   **Important constraint.** `state.json.classification.type` is set at Phase 3 (planning), which runs AFTER Phase 2a, 2b, AND Phase 1.5. So at the moments where hints would naturally apply (Phase 2a question rendering, Phase 1.5 mode pick), classification.type is still null. Use the following classification-free matching strategies instead:
+
+   a. **Phase 2a intake-question ordering (re-ordering nudge only).** When § Intake-question priority hints contains entries whose subject substring-matches any of `fact-assumption-analyst`'s generated question headers (case-insensitive substring match between the hint's quoted question subject and `checkpoints/intake-questions.json[].header`), render the matched question FIRST in the widget. The hint format includes a classification prefix (e.g. `compliance_check → priority-boost "processing volume"`), but at Phase 2a IGNORE the classification prefix — use only the quoted subject. Example: hint `compliance_check → priority-boost "processing volume"` matches if `fact-assumption-analyst` generated a question whose header contains "processing volume" — render it first regardless of the upcoming classification. Never invent or replace questions; reorder only. This is intentionally a loose match — it surfaces historically-valuable questions when they happen to appear in this task's intake, without requiring classification knowledge upstream.
+
+   b. **Phase 1.5 mode-pick stat hint — SKIPPED in v0.7.0.** The convergence statistics table is keyed by classification.type, which is unavailable at Phase 1.5. A workable Phase-3-aware variant could surface the hint right before plan approval (Phase 4a) when classification.type is known, but that timing is awkward (the user has already picked Brief/Full at this point — too late to act on the stat). Defer to a future Phase 3 polish iteration. For v0.7.0, do NOT prepend any stat hint to the Phase 1.5 mode-pick question.
+
+   c. **Researchers are NOT informed from here.** Researchers read their OWN `agent-overrides/<name>.md` files independently at dispatch time (per their built-in prompts). Do not propagate learned-patterns content into Phase 5 dispatch prompts.
+
+   d. **Other sections** (§ Currency hints, § MCP health, § Recurring patterns) are read but NOT actioned by the orchestrator at any phase. They exist for human inspection (the user reading `learned-patterns.md` directly or via the Lessons Studio's "View full learned-patterns.md" command) and for the lessons-extractor's own dedup pass. The orchestrator's only active uses are 3a above.
+
+4. **Echo policy.** Do NOT echo learned-patterns content into chat verbatim (other than the one-line stat hint in 3b). Do NOT cite the file in `plan.md`, intake outputs, or any subagent prompt. The hints inform ORDERING and FRAMING, never SUBSTANCE.
+
+5. **Best-effort.** If the file exists but parsing fails (malformed sections, unreadable encoding), skip silently and proceed to Phase 2a without hints. Do not fail Phase 1 or the task.
+
+**No `current_phase` change here** — Phase 1.4 is a passive read by the orchestrator, not a state transition. `current_phase` remains `intake_questions_pending` (set at end of Phase 1). No `phase_transition` event is emitted.
+
 ## Phase 2a — Run interactive intake (preferred) or fall back to text
 
 Before asking anything, check whether `checkpoints/intake-questions.json` exists and is valid strict JSON with the schema documented in `agents/fact-assumption-analyst.md`. Branch on that.
@@ -476,9 +510,9 @@ If `intake-questions.json` is missing, empty, or fails JSON parse:
    Full report: intake-questions.md (see artifact card above; plain path: <state.json.rel_work_dir>/checkpoints/intake-questions.md)
 
    Reply with one of:
-   - `/legal-memo-writer:continue <task_id> answer: <your answers>` — add facts
-   - `/legal-memo-writer:continue <task_id> proceed` — proceed on the proposed assumptions
-   - `/legal-memo-writer:continue <task_id> cancel` — stop the task
+   - `/memoforge:continue <task_id> answer: <your answers>` — add facts
+   - `/memoforge:continue <task_id> proceed` — proceed on the proposed assumptions
+   - `/memoforge:continue <task_id> cancel` — stop the task
    ```
 
    The path reference is plain text (file-reference rule D2 — see `progress-contract.md` §"How file references work in Cowork").
@@ -651,7 +685,7 @@ If `visualize_enabled == false` or the call throws, skip silently and proceed to
      - label: "Standard plugin style (built-in)"
      - description: "Skip custom profile and use the bundled prose-style + classical-memo / executive-brief template"
 
-   Cap the options at 4 (AskUserQuestion limit). If more than 3 profiles exist, show the default + first two others + "Standard plugin style". The user can still pick a different profile later via `/legal-memo-writer:style use <name>` then re-run /memo.
+   Cap the options at 4 (AskUserQuestion limit). If more than 3 profiles exist, show the default + first two others + "Standard plugin style". The user can still pick a different profile later via `/memoforge:style use <name>` then re-run /memo.
 
    Branch on the answer:
 
@@ -814,7 +848,7 @@ If `visualize_enabled == false` or the call throws, skip silently. The bullet pr
      ```
      If `state.json.config.visualize_enabled == true`, render the milestone-3 pipeline tracker per `skills/memo/references/progress-tracker.md` (status map row "3 — Plan approved"); save snapshot to `$WORK_DIR/widgets/progress-03-plan-approved.html`; graceful skip if disabled or call fails. **TodoWrite update.** Mark item #4 ("Plan approval") = `completed`, item #5 ("Parallel research") = `in_progress`. Silent skip if unavailable. **Continue inline to Phase 5 — no end-turn.**
 
-   - **Cancel picked** → set `plan_approval.status = cancelled`, `current_phase = cancelled_by_user`. Print: "Pipeline stopped. Working directory preserved at <state.json.rel_work_dir>/ (plain text path — open from the Cowork file viewer). Resume with: `/legal-memo-writer:continue <task_id>`." End turn.
+   - **Cancel picked** → set `plan_approval.status = cancelled`, `current_phase = cancelled_by_user`. Print: "Pipeline stopped. Working directory preserved at <state.json.rel_work_dir>/ (plain text path — open from the Cowork file viewer). Resume with: `/memoforge:continue <task_id>`." End turn.
 
    - **Request edits picked** → check `max_plan_edit_iterations` (default 5). If exceeded, print "Edit iteration limit reached. Please approve or cancel." and re-ask the previous AskUserQuestion (without the Edit option). Otherwise, run the **edit collection** step:
 
@@ -848,11 +882,11 @@ Print to chat:
 Research plan ready: plan.md (see the artifact card above if plan.md was just created via Write, otherwise open the file at <state.json.rel_work_dir>/plan.md)
 
 Review and confirm with one of these (the reliable form is via explicit resume):
-- `/legal-memo-writer:continue <task_id> approve` — proceed as is
-- `/legal-memo-writer:continue <task_id> edit: <instructions>` — apply edits
-- `/legal-memo-writer:continue <task_id> cancel` — stop
+- `/memoforge:continue <task_id> approve` — proceed as is
+- `/memoforge:continue <task_id> edit: <instructions>` — apply edits
+- `/memoforge:continue <task_id> cancel` — stop
 
-If you are still in the same Cowork session, the short replies `approve`, `edit: <instructions>`, and `cancel` may be picked up automatically. If not, use `/legal-memo-writer:continue <task_id> ...`.
+If you are still in the same Cowork session, the short replies `approve`, `edit: <instructions>`, and `cancel` may be picked up automatically. If not, use `/memoforge:continue <task_id> ...`.
 
 Awaiting your reply.
 ```
@@ -873,7 +907,7 @@ On reactivation, parse the last user message:
   4. Update `state.json.plan_approval.iterations` with the new iteration metadata.
   5. **Watch for template conflicts**: if edits expand scope beyond the selected template (e.g. user asks deep analysis but template is `executive-brief`), warn in the updated plan.md: "**Warning:** edits expand scope relative to <template>. Consider switching to <suggestion>."
   6. Re-show updated plan (Phase 4a), end turn.
-- Starts with `cancel` → set `plan_approval.status = cancelled`, `current_phase = cancelled_by_user`. Print: "Pipeline stopped. Working directory preserved at <state.json.rel_work_dir>/ (plain text path — open from the Cowork file viewer). Resume with: `/legal-memo-writer:continue <task_id>`." End turn.
+- Starts with `cancel` → set `plan_approval.status = cancelled`, `current_phase = cancelled_by_user`. Print: "Pipeline stopped. Working directory preserved at <state.json.rel_work_dir>/ (plain text path — open from the Cowork file viewer). Resume with: `/memoforge:continue <task_id>`." End turn.
 - **Anything else** → ask the user to use one of the three formats (don't increment `max_plan_edit_iterations`). End turn.
 
 ## Phase 5 — Parallel research
@@ -1023,7 +1057,7 @@ Read the JSON. Branch on `overall_verdict`:
          - **Skip everything and run on default assumptions**: reply with just `proceed` (the memo will apply the default assumption shown for each question and continue to drafting).
          - **Cancel the task**: reply with just `cancel`.
 
-         From another Cowork session: /legal-memo-writer:continue <task_id> followup: <answers>
+         From another Cowork session: /memoforge:continue <task_id> followup: <answers>
          ```
     5. **Path B (`visualize_enabled == false` OR Path A widget call throws)** — text fallback:
        - Print the framing + question list as plain text:
@@ -1043,11 +1077,11 @@ Read the JSON. Branch on `overall_verdict`:
          <repeat for each Subset U question>
 
          Reply with one of:
-         - `/legal-memo-writer:continue <task_id> followup: 1A 2C 3:my custom text` — provide answers
-         - `/legal-memo-writer:continue <task_id> proceed` — skip all and apply defaults
-         - `/legal-memo-writer:continue <task_id> cancel` — stop the task
+         - `/memoforge:continue <task_id> followup: 1A 2C 3:my custom text` — provide answers
+         - `/memoforge:continue <task_id> proceed` — skip all and apply defaults
+         - `/memoforge:continue <task_id> cancel` — stop the task
          ```
-    6. **End the assistant turn EXPLICITLY.** No inline-continue. No further tool calls. Control returns to the user. The next user message is parsed by `skills/continue/SKILL.md` §`research_sufficiency_followup_pending` handler (in-session or cross-session via `/legal-memo-writer:continue`).
+    6. **End the assistant turn EXPLICITLY.** No inline-continue. No further tool calls. Control returns to the user. The next user message is parsed by `skills/continue/SKILL.md` §`research_sufficiency_followup_pending` handler (in-session or cross-session via `/memoforge:continue`).
 
   - **Branch B6b — Subset U empty AND `attempts.research_followup == 0`** (existing researcher re-dispatch path; behaviour unchanged from pre-v0.6.3):
     Atomically increment `attempts.research_followup` to `1`, set `attempts.research_followup_pending_review = true`, append `research_followup_started` to `events.jsonl`, send each `issue_coverage[].recommended_followup_prompt` to the relevant researcher once, then re-run `research-sufficiency-reviewer` once and set `attempts.research_followup_pending_review = false`.
@@ -1137,7 +1171,7 @@ Steps:
    - `continue` — proceed to drafting (memo-writer + revision loop + client-readiness + export)
    - `cancel` — stop here; the work directory and source-pack remain for later use
 
-   From another Cowork session: /legal-memo-writer:continue <task_id> continue
+   From another Cowork session: /memoforge:continue <task_id> continue
    ```
 
    The 5 "top sources" lines are picked by the orchestrator from `source-pack.md` evidence-row order (the source-pack-builder orders by load-bearing weight per `agents/source-pack-builder.md` — pick the first 5). If the pack has fewer than 5 rows, list all available.
@@ -1152,7 +1186,7 @@ Steps:
 
 4. **End the assistant turn EXPLICITLY.** No inline-continue to Phase 8. No AskUserQuestion call. No further tool calls. The skill execution ends; control returns to the user.
 
-   The user's next chat message is parsed by Phase 8 (in-session resume) or by `skills/continue/SKILL.md` (cross-session resume via `/legal-memo-writer:continue <task_id> [continue|cancel]`).
+   The user's next chat message is parsed by Phase 8 (in-session resume) or by `skills/continue/SKILL.md` (cross-session resume via `/memoforge:continue <task_id> [continue|cancel]`).
 
 **Why no AskUserQuestion here:** the question is two-option (`continue` / `cancel`) and text-parsable. Adding an AskUserQuestion call on top of the text instructions risks the silent-fail behaviour documented in issue #29773 (modal exists in DOM but isn't painted), which would leave a Cowork user uncertain whether the modal failed or is just slow. Plain text instructions, post-end-of-turn-flush, are unambiguous.
 
@@ -1165,7 +1199,7 @@ Steps:
 1. Read `state.json` for `current_phase` and the latest user message.
 2. **If `current_phase == source_review_pending`**, parse the user's chat message (case-insensitive, leading/trailing punctuation ignored):
    - Starts with `continue` (or `proceed`, `go`, `draft`, `yes`, `ok`) → set `state.json.current_phase = drafting`. Continue to step 3 below.
-   - Starts with `cancel` (or `stop`, `abort`, `no`) → set `state.json.current_phase = cancelled_by_user`. Print "Pipeline stopped at source-review. Working directory preserved at `<state.json.rel_work_dir>/`. Resume with `/legal-memo-writer:continue <task_id> continue`." End turn.
+   - Starts with `cancel` (or `stop`, `abort`, `no`) → set `state.json.current_phase = cancelled_by_user`. Print "Pipeline stopped at source-review. Working directory preserved at `<state.json.rel_work_dir>/`. Resume with `/memoforge:continue <task_id> continue`." End turn.
    - Anything else → re-show the source-review checkpoint instructions (per Phase 7.5 template above). End turn. Do not advance.
    - **Also emit `gate_answered`** for the audit log:
      ```bash
@@ -1397,7 +1431,7 @@ If the script fails:
 
    Do NOT leave the pipeline with `final_docx_path = null` and only a chat message — that violates the `always-deliver.md` invariant "the user must always see a final chat message and a file at the documented output path".
 
-**No copy step (success path).** All artifacts already live at the user-visible `$WORK_DIR` (resolved at Phase 1 to the user's chosen output folder or the sandbox-accessible `outputs/legal-memo-work/<task_id>/`). The final docx joins them in the same folder. The user can browse to that folder at any time during or after the run. The markdown-fallback `cp` above is intra-`$WORK_DIR` only — it just renames the latest draft to the canonical artifact filename so downstream tooling (Read tool / artifact card / state.json) sees a stable path.
+**No copy step (success path).** All artifacts already live at the user-visible `$WORK_DIR` (resolved at Phase 1 to the user's chosen output folder or the sandbox-accessible `outputs/memoforge-work/<task_id>/`). The final docx joins them in the same folder. The user can browse to that folder at any time during or after the run. The markdown-fallback `cp` above is intra-`$WORK_DIR` only — it just renames the latest draft to the canonical artifact filename so downstream tooling (Read tool / artifact card / state.json) sees a stable path.
 
 **Emit a `phase_transition` event** to mark the run completion (per `events-contract.md`):
 
@@ -1427,6 +1461,150 @@ After the script succeeds:
 2. **Write a markdown mirror via the `Write` tool.** Copy the final draft content (the same `drafts/v<N>-client-ready.md` or `drafts/v<N>.md` source) to `<work_dir>/memo-<slug>.md` using the `Write` tool. Markdown files reliably get artifact cards from Cowork. This gives the user a guaranteed-clickable preview of the same memo content in plain markdown form even if the docx card from step 1 fails to render.
 
 Both steps add roughly ~1-2 seconds and consume no extra orchestrator context (no chat output from either tool — just the artifact cards Cowork inserts automatically).
+
+## Phase 11.5 — Lessons extraction (best-effort, v0.7.0+)
+
+After the docx (or markdown fallback) is visible to Cowork via the Phase-11 visibility step above, dispatch the `lessons-extractor` subagent. It performs two passes:
+
+1. **Pass 1 — Signal extraction.** Project this task's outputs (state.json, reviews/, drafts/, intake/, research/, logs/*-tools.jsonl, events.jsonl) into 0..10 structured signal files written under `~/.claude/plugin-data/memoforge/signals/`. Each signal carries a deterministic `pattern_key` and verbatim evidence.
+2. **Pass 2 — Cross-task synthesis.** Aggregate signals from the last 30 days. Tier 0 aggregate stats (convergence, reviewer trajectories, MCP latencies) are unconditionally recomputed into `learned-patterns.md`. Tier 1 advisory hints (intake/currency/MCP-health) are auto-applied to `learned-patterns.md` with audit records when threshold + quality gate pass. Tier 2/3 candidates write to `lessons/pending/<id>.md` for review via `/memoforge:lessons` (the Lessons Studio).
+
+This is **best-effort**: any failure in the extractor swallows silently and never blocks Phase 12. The agent enforces this internally, but the orchestrator MUST also treat the dispatch as optional — wrap the `Bash` log-event call with `|| true` and proceed to Phase 12 regardless of extractor outcome.
+
+A single task's evidence is almost never enough to cross a threshold (Tier 2 requires ≥3 distinct tasks across ≥2 classification.types; Tier 3 requires ≥3 distinct tasks with the same statute/MCP-tool pattern). Most runs will write a few signals and promote zero lessons. That is the expected steady state — lessons accumulate over weeks of tasks.
+
+### Resolve lessons home
+
+```bash
+LESSONS_HOME="${MEMOFORGE_LESSONS_HOME:-$HOME/.claude/plugin-data/memoforge}"
+mkdir -p "$LESSONS_HOME"
+```
+
+(The env var override mirrors `MEMOFORGE_PROFILES_HOME` from `scripts/resolve_style_profile.py` — the lessons system shares the same plugin-data root as Style Studio.)
+
+### Dispatch the agent
+
+Use the Agent tool (alias `Task`) with `subagent_type="lessons-extractor"`. Inputs are passed in the prompt — the agent reads `state.json` to discover the rest of work_dir.
+
+```
+Agent(
+  subagent_type="lessons-extractor",
+  prompt="""
+work_dir: <state.json.work_dir, absolute>
+task_id: <state.json.task_id>
+lessons_home: <$LESSONS_HOME from above>
+
+Do both passes per your agent prompt. Best-effort. Return the structured summary line block; the orchestrator parses the counts.
+  """
+)
+```
+
+### Parse the agent's return summary
+
+The agent returns ≤120 words in this exact shape:
+
+```
+Lessons extraction complete.
+
+Pass 1: <N> signals written to ~/.claude/plugin-data/memoforge/signals/
+Pass 2: <M> lessons promoted total.
+  - Auto-applied to learned-patterns.md: <K>
+  - Pending Studio review: <P>
+
+Top pattern keys this run: <list of up to 5 most-frequent pattern_key strings>
+
+Status: ok | extraction_failed:<reason> | pass2_failed:<reason>
+```
+
+Parse with simple string matching:
+- `N = <int after "Pass 1: ">` → `signals_written`
+- `M = <int after "Pass 2: ">` → `lessons_promoted`
+- `K = <int after "Auto-applied to learned-patterns.md: ">` → `auto_applied_count`
+- `P = <int after "Pending Studio review: ">` → `pending_count`
+- `T = <int after "Above-threshold groups examined: ">` → `groups_examined`
+- `C = <int after "Semantic merges performed: ">` → `clustering_merges`
+- `V = <int after "Quality-gate vetoes: ">` → `quality_gate_vetoed`
+- `Status` token after `Status: ` → `ok | extraction_failed:<reason> | pass2_failed:<reason>`
+
+If any number cannot be parsed, default it to 0. If `Status` is missing, treat as `ok`. The `T`/`C`/`V` counters are informational — older agent versions or extraction failures may produce a final response without them, which the parser tolerates by defaulting to 0.
+
+If `Status` starts with `extraction_failed:` or `pass2_failed:`, set `severity = warn` in the event below and pull the `<reason>` substring into `data.error`. Otherwise `severity = info` and `data.error = null`.
+
+### Emit `lessons_extracted` event
+
+Per `skills/memo/references/events-contract.md` §"Tier 2 — Cross-run learning events":
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
+  --workdir "$WORK_DIR" \
+  --event lessons_extracted \
+  --phase done \
+  --actor memo-skill \
+  --severity "<info|warn>" \
+  --data "{\"signals_written\":<N>,\"lessons_promoted\":<M>,\"auto_applied_count\":<K>,\"pending_count\":<P>,\"groups_examined\":<T>,\"clustering_merges\":<C>,\"quality_gate_vetoed\":<V>,\"lessons_dir\":\"$LESSONS_HOME/lessons\",\"extraction_failed\":<false|true>,\"error\":<null|\"<reason>\">}" \
+  || true
+```
+
+`|| true` is intentional. `log_event.py` failure must not fail Phase 11.5 — the docx is already delivered.
+
+### Phase 12 hint (downstream)
+
+The next phase (Phase 12 — Return summary to user) will append ONE line to the delivery summary IF `pending_count > 0`. The line is added BETWEEN the artifact-card lines and the Stats block, like this:
+
+```
+💡 <P> new lessons proposed for review. Run /memoforge:lessons.
+```
+
+If `pending_count == 0` or the extractor failed entirely, do NOT add this line. (See Phase 12 below for exact placement.)
+
+### Mantras applied vs skipped (deliberate set)
+
+Phase 11.5 follows MOST orchestrator mantras that surround every other subagent dispatch, with ONE deliberate exception. The reasoning matters:
+
+- **`active_subagents` plumbing — APPLIED in full** (set chip before dispatch, clear after return). Unlike a casual interpretation, the live-progress dashboard is NOT in a frozen / terminal state by Phase 11.5. The timeline entry for the `done` phase was opened at the end of Phase 11 (`started_at_iso = <ts>`, `completed_at_iso = null`); it stays open until memo skill end-turn (after Phase 12). During Phase 11.5, Pill #13 "Summary" is rendered as `in_progress`. A `🛠 lessons-extractor` chip inside an in-progress Summary pill is the same UX pattern as `🛠 statutory-researcher` chip inside an in-progress Research pill — useful "pipeline still working" signal that helps the user understand that the docx is delivered but post-delivery learning extraction (5-30 sec) is still happening. See §"`active_subagents` plumbing for this dispatch" below.
+
+- **TodoWrite update — SKIPPED.** The canonical TodoWrite list is exactly the 14 items initialized at Phase 1 step 4a; Phase 12 ends by asserting "All 14 items should now be `completed`". Phase 11.5 is best-effort post-export work that does NOT belong on the user-tracked pipeline list. Adding a #15 item would break the 14-item invariant and confuse the side-panel "complete" state. The chip and `lessons_extracted` event give enough visibility without polluting TodoWrite.
+
+The exception (TodoWrite) is scoped exclusively to Phase 11.5. Every earlier dispatch (Phases 1, 5, 6, 7, 8, 9, 10) continues to follow ALL mantras in full.
+
+### `active_subagents` plumbing for this dispatch
+
+Per the standard mantra at line 366 ("MANDATORY — orchestrator's active_subagents plumbing at every subagent dispatch"), execute the four steps around the `Task(subagent_type="lessons-extractor", ...)` call:
+
+1. **Before dispatch** — atomic `Edit` `state.json.live_progress.active_subagents = ["lessons-extractor"]`.
+2. **Re-render + update_artifact** — run `scripts/render_live_progress.py` + emit `mcp__cowork__update_artifact` so the `🛠 lessons-extractor` chip appears immediately under the in-progress Summary pill.
+3. **Dispatch** — `Task(subagent_type="lessons-extractor", ...)`. Block until return.
+4. **After return** — atomic `Edit` `state.json.live_progress.active_subagents = null`. **Then ALSO explicitly re-render + update_artifact** to clear the chip. Unlike mid-pipeline dispatches (which rely on the next phase_transition or subagent dispatch to refresh the dashboard), Phase 11.5 is the LAST dispatch of the run. Without an explicit post-return render, the `🛠 lessons-extractor` chip would stay visible until manual refresh.
+
+Skip the entire sequence when `state.json.config.live_progress_enabled == false` (per the standard mantra footer).
+
+If the dispatch fails / hangs / times out, `active_subagents` may stay set to `["lessons-extractor"]` until the orchestrator can clear it. Wrap the post-dispatch cleanup in a `try`/`finally`-style guarantee in your own reasoning: clear `active_subagents` AND re-render BEFORE proceeding to Phase 12 emission, regardless of dispatch outcome.
+
+### Emit `agent_dispatched` and `agent_returned` events (audit only)
+
+Although the UI-facing mantras above are skipped, the events.jsonl audit trail SHOULD record the dispatch consistently with every other subagent dispatch. These are Tier-1 events per `events-contract.md` and do not affect the dashboard:
+
+```bash
+# Before Task(subagent_type="lessons-extractor", ...)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
+  --workdir "$WORK_DIR" \
+  --event agent_dispatched \
+  --phase done \
+  --actor memo-skill \
+  --data '{"subagent_type":"lessons-extractor","purpose":"lessons-extraction","expected_outputs":["signals/<task_id>-*.json"],"dispatch_id":"phase11-5-lessons-extractor-1"}' \
+  || true
+
+# After the agent returns
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
+  --workdir "$WORK_DIR" \
+  --event agent_returned \
+  --phase done \
+  --actor memo-skill \
+  --data '{"subagent_type":"lessons-extractor","dispatch_id":"phase11-5-lessons-extractor-1","duration_seconds":<float>,"outputs_written":["~/.claude/plugin-data/memoforge/signals/","~/.claude/plugin-data/memoforge/lessons/","~/.claude/plugin-data/memoforge/learned-patterns.md"],"final_response_summary":"<≤120-char summary of agent return>"}' \
+  || true
+```
+
+Both wrapped in `|| true` — audit-event failure must not fail Phase 11.5. The `dispatch_id` value `phase11-5-lessons-extractor-1` is fixed (lessons-extractor only dispatches once per task).
 
 ## Phase 12 — Return summary to user
 
@@ -1473,9 +1651,80 @@ If status is `forced exit` or `manual review required`, add a final line directi
 Open the blockers list at reviews/v<N>-mediator.md to see the remaining issues.
 ```
 
+After the delivery summary (and after the optional blockers-list line above, if applicable), append ONE additional line IF Phase 11.5 reported `pending_count > 0` (parsed from `lessons-extractor`'s return summary):
+
+```
+💡 <P> new lessons proposed for review. Run /memoforge:lessons.
+```
+
+Replace `<P>` with the actual integer. If `pending_count == 0`, OR Phase 11.5 was skipped, OR the extractor returned a non-`ok` status — OMIT this line entirely. Do not produce a "0 new lessons" message; silence is the correct state when nothing crossed threshold.
+
 Do not wrap any of these file references in markdown links — they don't render as clickable in Cowork. The user already has artifact cards (from Read/Write tool calls) for the docx and markdown mirror; for other files in the audit trail, they navigate from the work directory.
 
 **Final TodoWrite update.** Mark #14 ("Finalize and summarize") = `completed`. All 14 items should now be `completed`. The side panel shows the full pipeline as completed. Silent skip if `TodoWrite` is unavailable.
+
+## Phase 12.5 — Workdir tidy (best-effort, v0.7.0+)
+
+After the Phase 12 delivery summary has been emitted to chat AND `TodoWrite` is marked complete, but BEFORE end-turn, do a final cleanup pass on the task `work_dir` top level. The goal is leaving the user with a clean folder containing only user-relevant artifacts.
+
+**Best-effort throughout.** Any tidy failure swallows silently. The user already has the docx + audit trail; tidy is purely cosmetic UX polish.
+
+### What stays at the top level
+
+After tidy, `<work_dir>/` (top level only) MUST contain only:
+
+- `memo-<slug>.docx` (the final deliverable; on markdown-fallback path the extension is `.md`)
+- `memo-<slug>.md` (markdown mirror written for Cowork artifact-card visibility — present in both success and fallback paths)
+- `state.json` (schema-referenced; needed for `/memoforge:continue <task_id>` and post-completion validators)
+- `events.jsonl` (schema-referenced; the audit log per `state.json.events_path` — keep at top level since the field is the relative form `"events.jsonl"`)
+- `plan.md` (user-facing planning artifact — referenced in Phase 12 delivery summary "Audit trail" line)
+- `changelog.md` (revision-history summary appended by memo-writer across v1→vN drafts; user-facing)
+- Canonical subdirectories: `intake/`, `research/`, `drafts/`, `reviews/`, `logs/`, `widgets/`, `checkpoints/` (each present iff the pipeline reached the phase that creates it)
+
+### What gets DELETED by tidy (and why)
+
+1. **Top-level `live-progress*.html` files** — these are intermediate rendered dashboards (master `live-progress.html` plus per-subagent / per-reviewer / per-phase snapshots like `live-progress-clarity-done.html`, `live-progress-logic-start.html`, `live-progress-cr-start.html`, etc.). They have no audit value post-completion because:
+   - The pipeline's chronological timeline is preserved in `state.json.live_progress.timeline[]`.
+   - Phase transitions are preserved as `phase_transition` events in `events.jsonl`.
+   - Cowork's chat-side artifact card (created at Phase 1 step 1d via `mcp__cowork__create_artifact`) is content-addressed and does NOT break when the local file is deleted — it stays renderable in chat from Cowork's own snapshot of the last `update_artifact` body.
+   - Per-step snapshots (`*-start.html`, `*-done.html`) are reviewer/subagent-emitted intermediate renders; they are NOT canonical and should not appear at top level in the first place (their existence indicates a subagent live-progress emission writing a sibling file instead of updating the master path — a separate bug to fix; tidy is the catch-net).
+
+2. **Top-level `*.py` files** — canonical Python scripts for this plugin live at `${CLAUDE_PLUGIN_ROOT}/scripts/` (e.g. `render_live_progress.py`, `log_event.py`, `validate_state.py`). They are NEVER copied into a task's `work_dir`. Any `*.py` file at the top level of `work_dir` is a stray artifact — typically from a subagent that wrote an inline Python helper into work_dir instead of invoking the canonical `${CLAUDE_PLUGIN_ROOT}/scripts/*` (the screenshot that motivated this phase showed `lp_done_render.py` and `lp_run.py`). These files have no canonical purpose and are safe to delete.
+
+3. **`*.tmp` files anywhere in `work_dir`** — atomic-write leftovers from interrupted `cat > X.tmp; mv X.tmp X` sequences. If the interrupt happened, the destination already has the prior valid content (mv didn't run); the `.tmp` is garbage. Recursively delete.
+
+### Bash sequence (best-effort, all swallows on failure)
+
+```bash
+WORK_DIR="<state.json.work_dir>"
+
+# Delete top-level live-progress HTML snapshots (master + per-step variants).
+# -maxdepth 1 keeps widgets/*.html (legitimate visualize snapshots) intact.
+find "$WORK_DIR" -maxdepth 1 -name 'live-progress*.html' -type f -delete 2>/dev/null || true
+
+# Delete top-level *.py stray scripts.
+# -maxdepth 1 is conservative — if some future feature ever drops a .py in a subdir,
+# this won't touch it. Empirically the bug only surfaces at top level.
+find "$WORK_DIR" -maxdepth 1 -name '*.py' -type f -delete 2>/dev/null || true
+
+# Delete *.tmp atomic-write leftovers ANYWHERE in work_dir (recursive — these are always trash).
+find "$WORK_DIR" -name '*.tmp' -type f -delete 2>/dev/null || true
+```
+
+### What tidy does NOT touch
+
+- Anything inside canonical subdirs (`intake/`, `research/`, `drafts/`, `reviews/`, `logs/`, `widgets/`, `checkpoints/`) — those are the per-phase artifact stores. Even if a subdir contains a stray file, the tidy doesn't recurse there (avoid false-positive deletion).
+- Files at the top level matching the "what stays" list (docx, .md mirror, state.json, events.jsonl, plan.md, changelog.md).
+- Anything outside `work_dir`. The find commands are scoped to `$WORK_DIR`.
+
+### When NOT to run tidy
+
+Skip Phase 12.5 entirely (don't even start the find commands) if EITHER:
+
+- `state.json.final_status` starts with `fallback_` (e.g. `fallback_research_summary_delivered`, `fallback_summary_delivered`) — fallback paths may have unusual artifacts at top level that diagnostics need; better leave the workdir untouched for forensics.
+- `state.json.current_phase` is `failed` or `cancelled_by_user` — same forensic reasoning.
+
+If `final_status` indicates a normal completion (`approved_on_v<N>`, `forced_exit_on_v<N>_with_remaining_issues`, `manual_review_required_on_v<N>`, `accepted_early_on_v<N>`), tidy runs.
 
 End turn.
 

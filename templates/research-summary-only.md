@@ -30,7 +30,7 @@ This template was **never** chosen by the Phase 3 classifier. It was set by Phas
    - Counter-argument stress test — skipped.
    - Citation audit — skipped (citations are listed as found, not as validated).
 8. **Next steps the user can take** — 3-5 bullets, framed as actions the user (not the pipeline) should take:
-   - "Run /legal-memo-writer:memo again in Full mode for IRAC analysis of issue <N>."
+   - "Run /memoforge:memo again in Full mode for IRAC analysis of issue <N>."
    - "Provide answers to the open questions listed under issue <N>." etc.
 9. **Sources** — numbered list with full bibliographic info (same format as `executive-brief`). Reuse `research/source-pack.md` content here.
 

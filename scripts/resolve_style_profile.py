@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Resolve and manage user style profiles for legal-memo-writer.
+"""Resolve and manage user style profiles for memoforge.
 
 Profiles live globally under:
 
-    ~/.claude/plugin-data/legal-memo-writer/
+    ~/.claude/plugin-data/memoforge/
     |-- default-profile.txt           # one line: name of the current default
     `-- profiles/
         `-- <profile-name>/
@@ -56,17 +56,17 @@ from typing import Optional
 # Paths
 # ---------------------------------------------------------------------------
 #
-# Default: ~/.claude/plugin-data/legal-memo-writer/
-# Override via env var LEGAL_MEMO_PROFILES_HOME (used in tests and for users
+# Default: ~/.claude/plugin-data/memoforge/
+# Override via env var MEMOFORGE_PROFILES_HOME (used in tests and for users
 # who want profiles stored elsewhere on disk). The env var, if set, replaces
 # the entire plugin-data dir — `profiles/` and `default-profile.txt` live
 # directly under it.
 
 def plugin_data_dir() -> Path:
-    override = os.environ.get("LEGAL_MEMO_PROFILES_HOME")
+    override = os.environ.get("MEMOFORGE_PROFILES_HOME")
     if override:
         return Path(override)
-    return Path.home() / ".claude" / "plugin-data" / "legal-memo-writer"
+    return Path.home() / ".claude" / "plugin-data" / "memoforge"
 
 
 def profiles_dir() -> Path:
@@ -372,7 +372,7 @@ def resolve_paths(name: str) -> dict[str, Optional[str]]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="Manage user style profiles for legal-memo-writer."
+        description="Manage user style profiles for memoforge."
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 

@@ -1,14 +1,14 @@
 ---
 name: status
-description: Show read-only status of a legal memo task by task_id, or list all tasks. Does not mutate state. Use only when explicitly invoked via /legal-memo-writer:status.
+description: Show read-only status of a legal memo task by task_id, or list all tasks. Does not mutate state. Use only when explicitly invoked via /memoforge:status.
 argument-hint: "[<task_id>] (omit to list all tasks)"
 disable-model-invocation: true
 allowed-tools: Read, Bash
 ---
 
-# legal-memo-writer / status skill
+# memoforge / status skill
 
-Read-only inspection of legal-memo-writer task state. **Never mutate state.json. Never dispatch worker subagents. Never run python scripts.** Only Read and Bash (for `ls`).
+Read-only inspection of memoforge task state. **Never mutate state.json. Never dispatch worker subagents. Never run python scripts.** Only Read and Bash (for `ls`).
 
 ## Output format — file references via Cowork artifact cards
 
@@ -33,7 +33,7 @@ Read `$ARGUMENTS`.
 
 ### Empty argument — list all tasks
 
-1. Scan the four canonical output-folder candidates (same resolution order as `skills/continue/SKILL.md` Task discovery): `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER`, `$LEGAL_MEMO_OUTPUT_FOLDER`, `$HOME/Documents/legal-memos`, `outputs/legal-memo-work`. For each parent that exists, run `ls "$parent"/memo-* 2>/dev/null` and collect unique `task_id` directories (a task_id appearing in two parents is deduped, but record the resolved parent path per task).
+1. Scan the four canonical output-folder candidates (same resolution order as `skills/continue/SKILL.md` Task discovery): `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER`, `$MEMOFORGE_OUTPUT_FOLDER`, `$HOME/Documents/memoforge`, `outputs/memoforge-work`. For each parent that exists, run `ls "$parent"/memo-* 2>/dev/null` and collect unique `task_id` directories (a task_id appearing in two parents is deduped, but record the resolved parent path per task).
 2. For each found `memo-*` directory:
    - Read `state.json`.
    - Extract `task_id`, `current_phase`, `created_at`, `user_query` (first 100 chars), `final_status` if set, and `rel_work_dir` (compute if absent).
@@ -102,13 +102,13 @@ For each entry in state.iterations:
 - Output artifact: print `<basename of final_docx_path>` at `<state.json.rel_work_dir>/<basename of final_docx_path>` (the basename may end in `.docx` on the success path OR `.md` if Phase 11 fell back to delivering the markdown — derive the extension from `final_docx_path` itself, do NOT assume `.docx`). Print "not yet exported" if `final_docx_path` is null. If the file exists, call `Read` on it first so Cowork inserts an artifact card.
 
 ## Suggested next step
-- If phase == intake_questions_pending → "Run `/legal-memo-writer:continue <task_id> answer: <facts>`, `/legal-memo-writer:continue <task_id> proceed`, or `/legal-memo-writer:continue <task_id> cancel`."
-- If phase == plan_approval_pending → "Run `/legal-memo-writer:continue <task_id> approve`, `/legal-memo-writer:continue <task_id> edit: <instructions>`, or `/legal-memo-writer:continue <task_id> cancel`."
-- If phase == source_review_pending → "Run `/legal-memo-writer:continue <task_id> continue` to draft, or `/legal-memo-writer:continue <task_id> cancel` to stop."
-- If phase in {intake_preliminary_research, planning, research, research_sufficiency, currency_check, source_pack, heartbeat_pending (legacy v0.0.42, migrated to source_review_pending on resume), drafting, revision_loop, client_readiness} → "Run `/legal-memo-writer:continue <task_id>` to resume."
-- If phase == export → "Run `/legal-memo-writer:continue <task_id>` to finalize docx."
+- If phase == intake_questions_pending → "Run `/memoforge:continue <task_id> answer: <facts>`, `/memoforge:continue <task_id> proceed`, or `/memoforge:continue <task_id> cancel`."
+- If phase == plan_approval_pending → "Run `/memoforge:continue <task_id> approve`, `/memoforge:continue <task_id> edit: <instructions>`, or `/memoforge:continue <task_id> cancel`."
+- If phase == source_review_pending → "Run `/memoforge:continue <task_id> continue` to draft, or `/memoforge:continue <task_id> cancel` to stop."
+- If phase in {intake_preliminary_research, planning, research, research_sufficiency, currency_check, source_pack, heartbeat_pending (legacy v0.0.42, migrated to source_review_pending on resume), drafting, revision_loop, client_readiness} → "Run `/memoforge:continue <task_id>` to resume."
+- If phase == export → "Run `/memoforge:continue <task_id>` to finalize docx."
 - If phase == done → "Task complete. Final artifact at <state.json.rel_work_dir>/<basename of final_docx_path> (extension may be .docx on success path or .md on markdown-fallback path — derive from final_docx_path). See the Read artifact card above for click access."
-- If phase == cancelled_by_user → "Task was cancelled. To start fresh: `/legal-memo-writer:memo`."
+- If phase == cancelled_by_user → "Task was cancelled. To start fresh: `/memoforge:memo`."
 - If phase == failed → "Task failed. Inspect <state.json.rel_work_dir>/ manually in the Cowork file viewer."
 ```
 

@@ -10,7 +10,7 @@ When a phase encounters failure or forced degradation, the orchestrator (`skills
 
 | Failure | Fallback | Banner |
 |---|---|---|
-| `${CLAUDE_PLUGIN_DATA}` not writable | Create working dir under user output folder instead (`<output_folder>/legal-memo-work/<task_id>/`); record alternate path in `state.json.work_dir` | none — silent fallback already deployed in current build |
+| `${CLAUDE_PLUGIN_DATA}` not writable | Create working dir under user output folder instead (`<output_folder>/memoforge-work/<task_id>/`); record alternate path in `state.json.work_dir` | none — silent fallback already deployed in current build |
 
 ### Phase 1.5 (mode choice) — user picks "Other" or skips
 

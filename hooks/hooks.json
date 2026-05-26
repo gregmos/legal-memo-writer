@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'legal-memo-writer live-progress dashboard pre-approved'}}))\""
+            "command": "python3 -c \"import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'memoforge live-progress dashboard pre-approved'}}))\""
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c \"import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'legal-memo-writer visualize widgets pre-approved (Phase 1.5 mockup / Phase 2a + 6.6 elicitation / Phase 3 plan diagram / Phase 12 final dashboard / milestone trackers)'}}))\""
+            "command": "python3 -c \"import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'memoforge visualize widgets pre-approved (Phase 1.5 mockup / Phase 2a + 6.6 elicitation / Phase 3 plan diagram / Phase 12 final dashboard / milestone trackers)'}}))\""
           }
         ]
       }

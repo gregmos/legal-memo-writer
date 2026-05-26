@@ -231,6 +231,54 @@ These 23 events are emitted by the current pipeline and remain canonical. They s
 
 `gate_answered` is the NEW canonical event for AskUserQuestion outcomes. The existing `mode_selected` / `revision_gate_*` / `polish_skipped_by_user` events SHOULD continue to be emitted (they carry richer per-gate context like the chosen mode or polish attempt number), but the orchestrator SHOULD ALSO emit a `gate_answered` event with the canonical shape so cross-gate aggregation works.
 
+## Tier 2 — Cross-run learning events (v0.7.0+)
+
+These events were added with the Layer B / Lessons Studio system. They emit at Phase 11.5 (post-export) and carry summary counts of what the `lessons-extractor` agent produced for this task.
+
+| Event | Actor | When | Severity |
+|---|---|---|---|
+| `lessons_extracted` | memo-skill | Phase 11.5 after lessons-extractor returns | info (warn on extraction_failed) |
+
+### `lessons_extracted`
+
+Fired once per task at the end of Phase 11.5 after the `lessons-extractor` subagent returns. Records the per-task signal extraction count and any lessons that crossed thresholds and were promoted: Tier 1 hints auto-applied to `learned-patterns.md` with audit records under `lessons/applied/auto/`; Tier 2/3 candidates written to `lessons/pending/` for Studio review. Tier 0 stats are recomputed unconditionally each run and do NOT count toward `lessons_promoted` or `auto_applied_count`.
+
+- **Actor:** `memo-skill`
+- **`phase`** — `done` (the agent runs after `phase = done` has been set)
+- **`iteration`** — `null` (post-loop)
+- **`severity`** — `info` on success; `warn` if extractor reported `extraction_failed: true`
+- **`data` shape:**
+  ```json
+  {
+    "signals_written": <int>,                    // number of new signal files written under signals/<task_id>-*.json
+    "lessons_promoted": <int>,                   // total lessons promoted this run (Tier 1+2+3) — equals auto_applied_count + pending_count. Tier 0 stats refreshes are NOT counted here (they happen unconditionally every run and have no lesson_id; see lessons-extractor §"Always-recompute Tier 0 sections")
+    "auto_applied_count": <int>,                 // Tier 1 only — advisory hints (intake/currency/MCP-health) appended to learned-patterns.md with audit records under applied/auto/<lesson_id>.md
+    "pending_count": <int>,                      // Tier 2+3 — written to lessons/pending/ for Studio review
+    "groups_examined": <int>,                    // number of pattern_key groups that crossed numeric threshold this run, BEFORE semantic clustering or quality gate (pre-merge count)
+    "clustering_merges": <int>,                  // number of semantic merges performed this run (merging near-threshold groups within the same kind prefix); see lessons-extractor §Semantic clustering
+    "quality_gate_vetoed": <int>,                // number of above-threshold candidates that failed at least one of the four quality-gate checks and were NOT promoted to a pending lesson file
+    "lessons_dir": "<absolute path to plugin-data/memoforge/lessons>",
+    "extraction_failed": false | true,           // true if Pass 1 or Pass 2 errored; details in `error` field
+    "error": null | "<short reason>"             // populated only when extraction_failed
+  }
+  ```
+
+**Invariants:** `lessons_promoted == auto_applied_count + pending_count`. Roughly `lessons_promoted ≤ groups_examined + clustering_merges` (some examined groups get vetoed; merges may add to promotions when they push a synthesized group above threshold). When `extraction_failed == true`, the three judgment counters (groups_examined / clustering_merges / quality_gate_vetoed) may be 0 reflecting the truncated run rather than the corpus reality.
+
+Example success entry (steady-state run):
+```json
+{"ts":"2026-05-26T18:42:11.124Z","event":"lessons_extracted","phase":"done","iteration":null,"actor":"memo-skill","severity":"info","data":{"signals_written":4,"lessons_promoted":1,"auto_applied_count":1,"pending_count":0,"groups_examined":3,"clustering_merges":1,"quality_gate_vetoed":2,"lessons_dir":"/home/user/.claude/plugin-data/memoforge/lessons","extraction_failed":false,"error":null}}
+```
+
+Reading this entry: 4 signals written this task; 3 pattern_key groups crossed threshold; 1 semantic merge happened; the LLM quality gate vetoed 2 of the resulting candidates and let 1 through (auto-applied as a Tier 1 advisory hint into learned-patterns.md, with an audit record in lessons/applied/auto/); 0 pending lessons for Studio review. (Tier 0 stats sections were also unconditionally refreshed during this run, but Tier 0 doesn't contribute to these counters.)
+
+Example failure entry (extractor crashed during Pass 2; Pass 1 may still have written signals):
+```json
+{"ts":"2026-05-26T18:42:11.124Z","event":"lessons_extracted","phase":"done","iteration":null,"actor":"memo-skill","severity":"warn","data":{"signals_written":4,"lessons_promoted":0,"auto_applied_count":0,"pending_count":0,"groups_examined":0,"clustering_merges":0,"quality_gate_vetoed":0,"lessons_dir":"/home/user/.claude/plugin-data/memoforge/lessons","extraction_failed":true,"error":"pass2_corpus_read_failed"}}
+```
+
+This event is informational — never blocks Phase 12. Downstream consumers (the `lessons` skill / "Studio") read the lessons files directly, not this event; the event exists for audit and debugging.
+
 ## Where each event SHOULD be added (T1 implementation roadmap)
 
 These are the explicit insertion points in `skills/memo/SKILL.md` and `skills/continue/SKILL.md`:

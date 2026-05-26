@@ -156,6 +156,29 @@ This checklist exists because v0.5.0 production runs showed agents occasionally 
 
 ≤200 words: one-line summary, file path, count of blocking issues, top 3 most critical issues.
 
+## Tool-call telemetry (v0.7.0+)
+
+Append a structured JSONL line to `<work_dir>/logs/currency-checker-tools.jsonl` for EVERY external tool call you make to verify source currency (any MCP namespace, WebSearch, WebFetch). This is Tier-2 telemetry per `skills/memo/references/logging-contract.md` §"Tier 2 — Structured tool-call telemetry" — see that section for the canonical schema.
+
+Required fields per JSON line: `ts` (ISO 8601 UTC), `tool` (full tool name), `category` (`mcp|websearch|webfetch`), `query` (≤120-char short summary, NEVER the full argument blob), `topic_key`, `result` (`ok|empty|error|ratelimited|timeout`), `latency_ms` (int), `result_size_hint` (int or null), `selected_url` (URL or null), `fallback_used` (short kebab-case reason or null), `iteration` (int — your `state.json.current_iteration` if inside the revision loop, else null; for currency-checker normally null since you run before the loop).
+
+**topic_key for currency checks:** **mirror the original researcher's topic_key** whenever possible — when you're re-verifying a statute that statutory-researcher pulled with `eu-aiact-art-14`, use that same key. Joinability across researcher → currency calls lets the extractor compute end-to-end success rates per topic.
+
+When mirroring isn't derivable (no matching researcher key found in the corresponding tool log, or you're checking a source whose researcher didn't log a topic_key), fall back to `<source-shortname>` — e.g. `eu-aiact-art-14`, `gdpr-art-6`, `edpb-2024-12`.
+
+Bash emission (best-effort; on failure swallow and continue currency checking):
+
+```bash
+mkdir -p "<work_dir>/logs"
+printf '{"ts":"%sZ","tool":"%s","category":"%s","query":"%s","topic_key":"%s","result":"%s","latency_ms":%d,"result_size_hint":%s,"selected_url":%s,"fallback_used":%s,"iteration":%s}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+  "<full-tool-name>" "<mcp|websearch|webfetch>" "<≤120 char summary>" "<topic_key>" "<result>" <latency_ms> \
+  "<size or null>" "<\"URL\" or null>" "<\"reason\" or null>" "<int or null>" \
+  >> "<work_dir>/logs/currency-checker-tools.jsonl"
+```
+
+This file feeds `agents/lessons-extractor.md` at Phase 11.5. Currency-checking patterns (e.g. specific statutes consistently flagged outdated, specific MCP tools unreliable for currency verification, fallback latency stats) feed into `learned-patterns.md` — either as Tier 0 aggregate stats (recomputed unconditionally each run) or as Tier 1 advisory hints (auto-applied with audit records when ≥2 task occurrences for the same source/layer).
+
 ## Live progress
 
 Read `state.json.config.live_progress_enabled`. If `true`, emit two real-time updates via `mcp__cowork__update_artifact` per `skills/memo/references/live-progress-contract.md` — these calls flush to the parent's chat scroll in real time (postmortem §9 STREAMING PASS, 2026-05-25). If `false`, skip silently.

@@ -31,7 +31,7 @@ Each `Created X / X` pair is a separate artifact card rendered by the Cowork UI 
 **Do NOT try to make file names clickable inside the Progress block.** Specifically:
 
 - ✗ `Artifacts: state.json, events.jsonl` — bare filenames are not clickable. Don't bother — there's no `Artifacts:` field in the v3 template (see below).
-- ✗ `[state.json](outputs/legal-memo-work/.../state.json)` — markdown links on relative paths without an http(s):// scheme are NOT rendered as clickable file references by Cowork UI. This was confirmed empirically across multiple test runs in 0.0.30–0.0.32 (helper-script approach with URL-encoding also failed). The Cowork chat parses the markdown but ignores the path for file access.
+- ✗ `[state.json](outputs/memoforge-work/.../state.json)` — markdown links on relative paths without an http(s):// scheme are NOT rendered as clickable file references by Cowork UI. This was confirmed empirically across multiple test runs in 0.0.30–0.0.32 (helper-script approach with URL-encoding also failed). The Cowork chat parses the markdown but ignores the path for file access.
 - ✗ `[state.json](file:///sessions/.../state.json)` — `file://` URLs would open in the browser, not the Cowork file viewer.
 - ✗ `[state.json](C:\Users\...\state.json)` — absolute platform paths are also not made clickable.
 
@@ -149,6 +149,6 @@ Cowork buffers assistant text between tool calls until the user types — so a c
 
 5. **Phase 11 revision iterations.** If a second or third iteration happens, do NOT add new sub-items — keep #11 `in_progress` with an updated activeForm: "Running revision loop (iteration N)".
 
-6. **On resume** (`/legal-memo-writer:continue <task_id>`): re-issue the full 14-item TodoWrite based on `state.json.current_phase`. Everything up to the current phase = `completed`, the current phase = `in_progress`, everything after = `pending`. The Phase 5 sub-items are added only if currently in Phase 5.
+6. **On resume** (`/memoforge:continue <task_id>`): re-issue the full 14-item TodoWrite based on `state.json.current_phase`. Everything up to the current phase = `completed`, the current phase = `in_progress`, everything after = `pending`. The Phase 5 sub-items are added only if currently in Phase 5.
 
 7. **Failure modes**: if `TodoWrite` is unavailable (host without the tool), continue without it — do NOT block the pipeline. The chat Progress channel is still primary.

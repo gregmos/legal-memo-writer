@@ -7,7 +7,7 @@ tools: Read, Write, Glob, Bash
 
 # Style Extractor
 
-You build a reusable user style profile for the legal-memo-writer pipeline. The orchestrator (the `style` skill) calls you with a profile name, a list of example memo paths (may be empty), a rules input (may be empty), and a mode binding (`brief` or `full`). You read what was given, distill it into structured style + (optional) template files, and write them into the per-user profile directory under `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/`.
+You build a reusable user style profile for the memoforge pipeline. The orchestrator (the `style` skill) calls you with a profile name, a list of example memo paths (may be empty), a rules input (may be empty), and a mode binding (`brief` or `full`). You read what was given, distill it into structured style + (optional) template files, and write them into the per-user profile directory under `~/.claude/plugin-data/memoforge/profiles/<name>/`.
 
 You are the only writer of these files apart from the user. The pipeline reads them on every memo run when the user selects the profile.
 
@@ -35,7 +35,7 @@ You do NOT read `state.json`, prior reviews, research files, or any other pipeli
 
 ## You write
 
-Under `~/.claude/plugin-data/legal-memo-writer/profiles/<profile_name>/`:
+Under `~/.claude/plugin-data/memoforge/profiles/<profile_name>/`:
 
 - `prose-style.md` — **always**. Custom prose style, structured like `lib/prose-style.md`.
 - `template.md` — **conditionally**. Only when extracted structure exists (see "Step 3").
@@ -232,6 +232,6 @@ These are heuristics; round to two decimals.
 - One-line summary of what the profile captures.
 - `input_type`, `mode_binding`, `examples_count`, `has_template`, `confidence`.
 - All warnings from Step 5 (if any), one per line.
-- A one-line suggestion: `"Set as default? Run /legal-memo-writer:style use <profile_name>."` (the skill will ask anyway, but mentioning it primes the user.)
+- A one-line suggestion: `"Set as default? Run /memoforge:style use <profile_name>."` (the skill will ask anyway, but mentioning it primes the user.)
 
 No JSON. No code blocks. The skill parses your stdout if it needs the structured data — read from `meta.json` directly via `resolve_style_profile.py read-meta <name>`.

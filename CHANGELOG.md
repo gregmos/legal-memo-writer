@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to legal-memo-writer.
+All notable changes to memoforge.
 
-The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The version line in `README.md`, `.claude-plugin/plugin.json`, the latest `dist/*.zip`, and the latest `git tag` MUST all match. The `legal-memo-writer-0.5.0-probe.zip` archive on disk is a preserved developer-only diagnostic build that proved out §9 of the v0.2.0 postmortem; it is not a release, and `README.md` was deliberately not updated for it.
+The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The version line in `README.md`, `.claude-plugin/plugin.json`, the latest `dist/*.zip`, and the latest `git tag` MUST all match. The `memoforge-0.5.0-probe.zip` archive on disk is a preserved developer-only diagnostic build that proved out §9 of the v0.2.0 postmortem; it is not a release, and `README.md` was deliberately not updated for it.
 
 ---
 
@@ -12,7 +12,7 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ### The problem (May 2026)
 
-The `/legal-memo-writer:memo` pipeline runs a 15-agent legal memorandum production line. Phases 5→7.5 (parallel research → sufficiency → currency → source-pack → checkpoint) and Phases 8→12 (drafting → revision loop → polish → export) each spend 5–40 minutes in a single autonomous turn during which Cowork's chat surface flushes nothing — the user sees `Agent` dispatch tiles + a side-panel TodoWrite but no text. Closed GitHub issues #26805, #29773, #29547, #33564, #44776 establish the chat-buffering bug as a hard upstream constraint with no fix planned by Anthropic.
+The `/memoforge:memo` pipeline runs a 15-agent legal memorandum production line. Phases 5→7.5 (parallel research → sufficiency → currency → source-pack → checkpoint) and Phases 8→12 (drafting → revision loop → polish → export) each spend 5–40 minutes in a single autonomous turn during which Cowork's chat surface flushes nothing — the user sees `Agent` dispatch tiles + a side-panel TodoWrite but no text. Closed GitHub issues #26805, #29773, #29547, #33564, #44776 establish the chat-buffering bug as a hard upstream constraint with no fix planned by Anthropic.
 
 ### What we tried, and what worked
 
@@ -60,7 +60,146 @@ Documented empirically through this arc (also in `~/.claude/projects/.../memory/
 - Orchestrator mantras: `skills/memo/SKILL.md` Step 1 sub-step 1d (mint) and §"MANDATORY — orchestrator's active_subagents plumbing" (per-dispatch).
 - 15 instrumented agents: every file under `agents/*.md` except `style-extractor.md` (which is Style-Studio-only, not in the main pipeline) has a `## Live progress` section + `## Pre-return checklist`.
 - Initial postmortem (still required reading for context): `docs/postmortems/v0.2.0-live-progress.md`.
-- The diagnostic probe that proved §9: `dist/legal-memo-writer-0.5.0-probe.zip` (archived on disk; never republished).
+- The diagnostic probe that proved §9: `dist/memoforge-0.5.0-probe.zip` (archived on disk; never republished).
+
+---
+
+## 0.7.0 — 2026-05-26 (cross-run learning + Lessons Studio)
+
+**The plugin now accumulates lessons across memo tasks and exposes them for one-click apply/reject via a new Lessons Studio skill. This is the first release where the pipeline LEARNS from its own production history — what kinds of blocking issues recur, which intake questions historically prevent Phase 6.6 follow-ups, which MCP queries consistently fall through to WebFetch fallback. No content from any specific memo crosses tasks; only structural signals (counts, categories, scores, query patterns) accumulate. All learning artifacts live under `~/.claude/plugin-data/memoforge/` — the plugin install dir is never modified at runtime.**
+
+### Why
+
+After ~30 memo tasks of varied classification it became visible that the pipeline was repeatedly catching the SAME kinds of issues, particularly: (a) memo-writer overconfidence cues like "clearly", "obviously" surfacing as `counterargument-reviewer:overconfidence` blockers, (b) statute-paraphrase patterns triggering `citation-auditor:source_drift` for the same handful of articles (GDPR Art. 6, AI Act Art. 14), (c) Phase 6.6 firing in ~60% of `cross_border` tasks on the same missing-fact category ("EEA controller established?"), (d) LDH MCP returning empty for jurisdiction-CY queries with predictable fallback to canonical Cyprus government portals. The corrections were lossy — each task's mediator/reviewer feedback was discarded after export. The same lessons had to be re-discovered every run.
+
+v0.7.0 captures these patterns structurally without the user retyping rules into prompt files. The architecture follows three principles:
+
+1. **LLM judgment, not pure numeric counting.** Lessons are gated by both (a) a numeric threshold (e.g. ≥3 distinct tasks across ≥2 classification.types) AND (b) an LLM quality gate (coherence, overlap-with-built-in, specificity, false-positive risk). Either gate alone is brittle; both together are robust.
+
+2. **Semantic clustering rescues cross-surface-form patterns.** Strict pattern_key grouping (e.g. `prose:overconfidence:clearly` vs `prose:overconfidence:plainly`) misses semantically-equivalent patterns. After threshold check, the LLM examines near-threshold groups within the same `kind` prefix and merges semantically-similar ones — `clearly`+`plainly`+`obviously` (n=2 each individually) become a single "weasel-words" lesson (n=6 combined).
+
+3. **Plugin install dir is immutable at runtime.** All overrides live under `~/.claude/plugin-data/memoforge/`. Agents conditionally READ overrides; they never WRITE to the plugin install dir. The Lessons Studio is the only writer of override files, and only via explicit user Apply/Reject action.
+
+### What changed
+
+**Part A — Tier-2 structured tool-call telemetry (`skills/memo/references/logging-contract.md`).**
+
+A new Tier-2 logging section documents `<work_dir>/logs/<agent>-tools.jsonl` — structured JSONL files emitted by researchers (statutory, case-law, doctrinal), `currency-checker`, and `citation-auditor` on every external tool call (MCP, WebSearch, WebFetch). Schema per line: `ts, tool, category (mcp|websearch|webfetch), query (≤120 chars), topic_key, result (ok|empty|error|ratelimited|timeout), latency_ms, result_size_hint, selected_url, fallback_used, iteration`. The existing Tier-1 plain-text per-step log (`<agent>.log`) is preserved unchanged — Tier 2 is a separate sibling file targeted at machine consumption (the `lessons-extractor` agent at Phase 11.5). Best-effort; failures swallow silently.
+
+`topic_key` is the join field for cross-task pattern detection. Researchers compute it deterministically per call: statutes → `<jurisdiction>-<instrument-shortname>-<article>` (e.g. `eu-aiact-art-14`); case-law → `<jurisdiction>-<court>-<case-shortname>`; doctrinal → `<topic-keyword-bigram>` or `<regulator-doc-shortcode>`. `currency-checker` and `citation-auditor` mirror the researcher's topic_key to enable end-to-end pipeline correlation per source.
+
+**Part B — `lessons-extractor` agent (NEW, `agents/lessons-extractor.md`).**
+
+Opus-model subagent dispatched once per task at Phase 11.5 (after successful docx export). Two-pass operation:
+
+- **Pass 1 — Signal extraction.** Reads this task's `state.json`, `events.jsonl`, all `reviews/v*-*.json`, drafts/v1 + final, `intake/`, `research/{currency-report,research-sufficiency}.json`, AND all `logs/*-tools.jsonl`. For each candidate, computes a deterministic `pattern_key` and writes a small JSON signal file to `~/.claude/plugin-data/memoforge/signals/<task_id>-<seq>.json`. Caps at 10 signals per task. Skips signals whose pattern_key matches an already-applied override (dedup-at-source).
+
+- **Pass 2 — Cross-task synthesis.** Reads accumulated signals from last 30 days. Groups strictly by `pattern_key`. For groups that cross numeric threshold, the LLM runs semantic clustering for near-threshold neighbors within the same `kind` prefix (`n ≥ threshold-2 AND n < threshold`; max 1 merge per kind per round; bias toward NOT merging). Then quality gate (coherence / overlap-with-built-in / specificity / false-positive-risk checks). Survivors promote per tier:
+  - **Tier 1** (intake hints, currency hints, MCP health) → auto-applied to a section of `learned-patterns.md` with an audit record at `lessons/applied/auto/<lesson_id>.md` (so the Studio can show + Undo it).
+  - **Tier 2/3** → written as pending lessons under `lessons/pending/<lesson_id>.md` for Studio review.
+  - **Tier 0** (aggregate stats: convergence, reviewer trajectories, MCP latencies) is NOT routed through the promotion path. It's recomputed unconditionally in a separate §"Always-recompute Tier 0 sections" step every Pass 2 — no lesson_id, no audit record per refresh. The `Last update: <ISO>` line at the top of `learned-patterns.md` is the only audit signal for Tier 0 refreshes.
+
+Returns a structured summary parsed by `memo` skill: `signals_written`, `lessons_promoted` (Tier 1+2+3, NOT including Tier 0 recomputes), `auto_applied_count` (Tier 1 only), `pending_count` (Tier 2+3), plus judgment counters `groups_examined`, `clustering_merges`, `quality_gate_vetoed`.
+
+**Part C — Phase 11.5 in `memo` skill (`skills/memo/SKILL.md`).**
+
+New phase between docx visibility step and Phase 12 summary. Dispatches `lessons-extractor` best-effort; failures never block the task. Emits `agent_dispatched`/`agent_returned`/`lessons_extracted` events (Tier-2 event documented in `events-contract.md`). `active_subagents` plumbing applied in full — a `🛠 lessons-extractor` chip surfaces under the in-progress Summary pill (#13) for the 5-30 seconds the extractor runs, then is cleared via an explicit post-return render (Phase 11.5 is the LAST dispatch of the run, so the standard "next phase_transition refreshes the dashboard" assumption doesn't apply — explicit render needed). One mantra deliberately skipped: TodoWrite update (preserves the canonical 14-item list invariant; the lessons system has its own audit/UI surfaces — events.jsonl, the Studio dashboard, the Phase 12 chat hint). Exceptions documented inline.
+
+If `lessons_extracted.data.pending_count > 0`, Phase 12 appends ONE line to the delivery summary: `💡 N new lessons proposed for review. Run /memoforge:lessons.` Silent otherwise.
+
+**Part D — Phase 1.4 advisory read in `memo` skill (`skills/memo/SKILL.md`).**
+
+Before Phase 2a intake, the orchestrator reads `~/.claude/plugin-data/memoforge/learned-patterns.md` once (if present, fresh — <30 days). One actioned downstream use point in v0.7.0: reorder intake questions in Phase 2a based on `§ Intake-question priority hints` matching question-header substrings. Classification-keyed hints (e.g. `compliance_check → "processing volume"`) are matched by their question subject only — `state.json.classification.type` is set at Phase 3 (planning) and unavailable at Phase 2a, so the classification prefix is ignored at hint-application time. The Phase 1.5 mode-pick stat hint envisioned in the design was DROPPED for v0.7.0 because classification.type is similarly unavailable at Phase 1.5; defer to a future Phase 3-aware variant.
+
+Researchers are NOT informed from here — they read their own `agent-overrides/<name>.md` files independently at dispatch. Passive read, no state transition, no event emission. Other sections of `learned-patterns.md` (§ Currency hints, § MCP health, § Recurring patterns) are accessible for human inspection via the Lessons Studio's "View full learned-patterns.md" command but are not actioned by the orchestrator.
+
+**Part E — Lessons Studio skill (NEW, `skills/lessons/SKILL.md`).**
+
+User-facing UI invoked via `/memoforge:lessons`. Reads/writes plugin-data only. Compact summary screen (≤25 lines) groups pending lessons by `target_file`, surfaces auto-applied-since-last-visit count. Top-level menu options (AskUserQuestion-based, plain-text fallback): Review one-by-one, Apply all pending, Show auto-applied, Show recently rejected, Exit. Per-lesson decisions: Apply / Reject (30-day cooldown) / Defer / Edit-before-applying. Apply appends the proposed change as a dated H3 section to the target override file with backlink audit comment, moves lesson to `applied/manual/`. Reject moves to `rejected/` with cooldown. Rollback subcommand (`/memoforge:lessons rollback <lesson_id>`) removes the H3 section from the override file and moves the audit record to `rejected/`.
+
+**Part F — Override file infrastructure (`~/.claude/plugin-data/memoforge/`).**
+
+Two override types:
+- `prose-style-overrides.md` — appends to built-in `lib/prose-style.md` (read by `memo-writer` and indirectly by `revision-mediator` via its prose-style reads).
+- `agent-overrides/<agent>.md` — augments a specific agent's prompt (read by `memo-writer`, `fact-assumption-analyst`, `citation-auditor`, `statutory-researcher`, `case-law-researcher`, `doctrinal-researcher`).
+
+Each of those 6 agents got an `## Optional override (v0.7.0+)` section near the top of its prompt with conditional Read instruction, priority order, and explicit "skip silently if missing/empty/malformed" behavior. Built-in plugin behavior remains authoritative; overrides are advisory and additive.
+
+**Part G — Plugin-data layout.**
+
+```
+~/.claude/plugin-data/memoforge/
+├── profiles/                              (existing — Style Studio, unchanged)
+├── learned-patterns.md                    (NEW; auto-managed advisory)
+├── prose-style-overrides.md               (NEW; Studio-managed)
+├── agent-overrides/                       (NEW)
+│   ├── memo-writer.md
+│   ├── fact-assumption-analyst.md
+│   ├── citation-auditor.md
+│   ├── statutory-researcher.md
+│   ├── case-law-researcher.md
+│   └── doctrinal-researcher.md
+├── signals/                               (NEW — accumulation layer)
+│   ├── <task_id>-<seq>.json
+│   └── archive/<YYYY-MM>/                 (future: monthly rollover, Phase 3 polish)
+└── lessons/
+    ├── pending/<lesson_id>.md
+    ├── applied/auto/<lesson_id>.md
+    ├── applied/manual/<lesson_id>.md
+    ├── rejected/<lesson_id>.md
+    └── meta/{last_review,stats,pattern_keys,clustering-suggestions}.json
+```
+
+Env var override: `MEMOFORGE_LESSONS_HOME` (mirrors `MEMOFORGE_PROFILES_HOME` from Style Studio).
+
+**Part H — Phase 12.5 workdir tidy (`skills/memo/SKILL.md`).**
+
+After Phase 12 delivery summary and Final TodoWrite update, before end-turn, the orchestrator does a best-effort cleanup pass on the task `work_dir` top level. Removes intermediate / stray files that don't belong at top level: all `live-progress*.html` rendered snapshots (master + per-subagent / per-reviewer / per-phase variants — their data is preserved in `state.json.live_progress.timeline` and `events.jsonl phase_transition` events; the Cowork artifact card stays renderable because it's content-addressed on Cowork's side), all top-level `*.py` stray scripts (canonical Python scripts live at `${CLAUDE_PLUGIN_ROOT}/scripts/`, never in work_dir — `lp_done_render.py`/`lp_run.py` and similar are bug artifacts from buggy subagent live-progress emissions), and all `*.tmp` atomic-write leftovers anywhere in work_dir.
+
+After tidy, the top-level work_dir contains ONLY the deliverable (`memo-<slug>.docx` + `.md` mirror), schema-referenced infra files (`state.json`, `events.jsonl`), user-facing planning/revision artifacts (`plan.md`, `changelog.md`), and the canonical subdirectories (`intake/`, `research/`, `drafts/`, `reviews/`, `logs/`, `widgets/`, `checkpoints/`).
+
+Tidy is **skipped** on failure / cancellation / fallback paths (final_status starting with `fallback_`, or current_phase = `failed` / `cancelled_by_user`) — those paths may have unusual artifacts at top level that diagnostics need; better leave the workdir untouched for forensics. All other normal-completion `final_status` values (`approved_on_v<N>`, `forced_exit_on_v<N>_with_remaining_issues`, `manual_review_required_on_v<N>`, `accepted_early_on_v<N>`) trigger tidy.
+
+Best-effort throughout — failures of the `find ... -delete` commands swallow silently via `|| true`. The user already has the docx + audit trail; tidy is purely cosmetic UX polish.
+
+### Verification (end-to-end smoke test)
+
+1. Run a memo task. Check `<work_dir>/logs/*-tools.jsonl` exists with one JSONL line per researcher tool call.
+2. Check `<work_dir>/events.jsonl` for a `lessons_extracted` event with `signals_written`, `groups_examined`, `clustering_merges`, `quality_gate_vetoed` counters.
+3. Check `~/.claude/plugin-data/memoforge/signals/` for new signal files matching this task_id.
+4. Run 5+ tasks of varied classification. Run `/memoforge:lessons summary` — verify pending count and auto-applied stats render.
+5. Run `/memoforge:lessons`, Apply a pending lesson — verify target override file gets the new H3 section AND lesson moved to `applied/manual/`.
+6. Run a fresh memo — verify the relevant agent reads its override at start (look for the Read tool call in `<work_dir>/logs/<agent>.log`).
+7. `/memoforge:lessons rollback <lesson_id>` — verify section removed from override and audit record moved to `rejected/`.
+
+### Files changed in this release
+
+- NEW `agents/lessons-extractor.md` (~444 lines, opus model, two-pass with semantic clustering + quality gate)
+- NEW `skills/lessons/SKILL.md` (~470 lines, interactive Studio with review/apply/reject/defer/rollback)
+- EDIT `agents/memo-writer.md` (+~25 lines: dual override read at top — prose-style-overrides.md AND agent-overrides/memo-writer.md)
+- EDIT `agents/fact-assumption-analyst.md` (+~20 lines: optional override read)
+- EDIT `agents/statutory-researcher.md` (+~50 lines: Tier-2 telemetry block + optional override read)
+- EDIT `agents/case-law-researcher.md` (+~50 lines: same as statutory)
+- EDIT `agents/doctrinal-researcher.md` (+~50 lines: same)
+- EDIT `agents/currency-checker.md` (+~25 lines: Tier-2 telemetry only — no override read; this agent is mechanical-verification, not learning-driven)
+- EDIT `agents/citation-auditor.md` (+~50 lines: Tier-2 telemetry + optional override read)
+- EDIT `skills/memo/SKILL.md` (+~160 lines: Phase 1.4 advisory read + Phase 11.5 lessons-extraction dispatch + Phase 12 conditional hint)
+- EDIT `skills/memo/references/logging-contract.md` (+~85 lines: Tier-2 structured tool-call telemetry section)
+- EDIT `skills/memo/references/events-contract.md` (+~50 lines: `lessons_extracted` event documented as Tier-2 with judgment-counter fields)
+- BUMP `.claude-plugin/plugin.json` to 0.7.0 with updated description
+
+### What this release does NOT do (out of scope)
+
+- **No edits to the plugin install dir at runtime.** Agent definitions under `${CLAUDE_PLUGIN_ROOT}/agents/*.md`, `lib/prose-style.md`, and `templates/*.md` are immutable at runtime. Lessons flow into per-user override files under plugin-data, never into the plugin codebase.
+- **No automatic merging of accepted lessons upstream into the plugin.** Users can manually upstream a recurring lesson into the canonical plugin via PR if they want; the Studio does not do this automatically.
+- **No LLM auto-grading of lessons.** The user remains the gate for Tier 2/3 lessons via the Studio's Apply/Reject decisions. The lessons-extractor's quality gate filters out obviously-bad candidates but the user reviews surviving proposals.
+- **No cross-machine sync of plugin-data.** Each plugin install's `~/.claude/plugin-data/memoforge/` is local. Users who want to share patterns can manually copy override files across machines.
+- **No monthly archive rollover for old signals.** Deferred to a future patch; the `signals/archive/` directory is created but currently unused. Signal files accumulate; the 30-day threshold window means signals older than 30 days are excluded from threshold counts but remain on disk.
+- **No visualize widget for the Studio summary.** v0.7.0 ships text-only Studio UI; visualize widget is Phase 3 polish.
+
+### Reference
+
+Plan and design rationale: see the in-conversation plan (architectural background on the two-stage signals→lessons model, threshold rationale, semantic-clustering conservatism rules, privacy contract).
 
 ---
 
@@ -108,13 +247,13 @@ python3 -c "import re; ..."  # all 10 cases match the expected matcher (cowork /
 
 Smoke-test for the inline visualize hook command:
 ```
-python3 -c "import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'legal-memo-writer visualize widgets pre-approved (Phase 1.5 mockup / Phase 2a + 6.6 elicitation / Phase 3 plan diagram / Phase 12 final dashboard / milestone trackers)'}}))"
+python3 -c "import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'memoforge visualize widgets pre-approved (Phase 1.5 mockup / Phase 2a + 6.6 elicitation / Phase 3 plan diagram / Phase 12 final dashboard / milestone trackers)'}}))"
 ```
 Returns valid JSON containing `permissionDecision: allow` — confirmed in build.
 
 ### Manifest match
 
-`.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.6.3.zip`.
+`.claude-plugin/plugin.json === README badge === dist/memoforge-0.6.3.zip`.
 
 ## 0.6.2 — 2026-05-26 (topic header + per-subagent chips + transitions audit)
 
@@ -145,7 +284,7 @@ Next memo run on 0.6.2 shows a clean topic line in the header (e.g. `GDPR compli
 
 ### Manifest match
 
-`.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.6.2.zip`.
+`.claude-plugin/plugin.json === README badge === dist/memoforge-0.6.2.zip`.
 
 ## 0.6.1 — 2026-05-26 (fix phase numbering + execution order in dashboard)
 
@@ -246,7 +385,7 @@ Aggressive option (researcher per-source) was rejected in the clarification roun
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — **all 131 tests pass** (115 baseline + 16 new v0.6.0 tests).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.6.0.zip === git tag v0.6.0`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.6.0.zip === git tag v0.6.0`.
 
 ### Known follow-up if JS sandbox blocks `<script>`
 
@@ -271,7 +410,7 @@ The literal string `${CLAUDE_PLUGIN_ROOT}` was passed to python3 as a path compo
 - **`hooks/hooks.json` rewritten with an INLINE `python3 -c` command.** No external script file, no env var dependency. The matcher regex (`mcp__cowork__(create_artifact|update_artifact|list_artifacts)`) restricts the hook to the three specific tools, so the inline Python can unconditionally output the allow JSON without re-checking the tool name. New command:
 
   ```
-  python3 -c "import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'legal-memo-writer live-progress dashboard pre-approved'}}))"
+  python3 -c "import json,sys; sys.stdout.write(json.dumps({'hookSpecificOutput':{'hookEventName':'PreToolUse','permissionDecision':'allow','permissionDecisionReason':'memoforge live-progress dashboard pre-approved'}}))"
   ```
 
 - **DELETED `hooks/auto_approve_cowork.py`.** No longer needed — the inline Python replaces it.
@@ -290,7 +429,7 @@ The README's `~/.claude/settings.json` `permissions.allow` fallback remains docu
 
 - Inline command smoke-test: `python3 -c "..."` returns valid JSON containing `permissionDecision: allow`.
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass.
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.7.zip`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.7.zip`.
 
 ## 0.5.6 — 2026-05-26 (move artifact mint into Step 1 / Task setup)
 
@@ -315,12 +454,12 @@ v0.5.5 added STOP-framing and a verification checkpoint, both pointing at step 3
 
 ### Effect on users
 
-The next `/legal-memo-writer:memo` run on 0.5.6 should produce a sidebar "Live artifacts" card with id `memo-<task_id>-live` IMMEDIATELY after the orchestrator completes Task setup — before the MCP precheck, before the visualize precheck, before fact-assumption-analyst dispatch. If the card still doesn't appear, the orchestrator is ignoring even the in-step-1 placement and the next iteration must take a more radical approach (e.g. wrap the mint in `resolve_work_dir.sh` so it's a single deterministic Bash invocation, leaving the orchestrator only the discrete tool call).
+The next `/memoforge:memo` run on 0.5.6 should produce a sidebar "Live artifacts" card with id `memo-<task_id>-live` IMMEDIATELY after the orchestrator completes Task setup — before the MCP precheck, before the visualize precheck, before fact-assumption-analyst dispatch. If the card still doesn't appear, the orchestrator is ignoring even the in-step-1 placement and the next iteration must take a more radical approach (e.g. wrap the mint in `resolve_work_dir.sh` so it's a single deterministic Bash invocation, leaving the orchestrator only the discrete tool call).
 
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass (no scripts changed).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.6.zip`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.6.zip`.
 
 ## 0.5.5 — 2026-05-26 (hardens Phase 1 step 3.5 mint against orchestrator skip)
 
@@ -346,7 +485,7 @@ Prior v0.5.1 hardening targeted SUBAGENT done emissions via the Pre-return check
 
 ### Effect on users
 
-The next `/legal-memo-writer:memo` run on 0.5.5 should produce:
+The next `/memoforge:memo` run on 0.5.5 should produce:
 - A sidebar "Live artifacts" card with id `memo-<task_id>-live` visible immediately after the orchestrator completes Phase 1 setup (before fact-assumption-analyst dispatches).
 - `state.json.live_progress` populated with `artifact_id`, `html_path`, `started_at_iso`, `phase_started_at_iso`, and a one-entry timeline.
 - `events.jsonl` containing `live_progress_precheck_result` and `live_progress_artifact_minted` events.
@@ -357,7 +496,7 @@ If the sidebar card STILL doesn't appear after installing 0.5.5: the orchestrato
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass (no scripts changed).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.5.zip`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.5.zip`.
 
 ## 0.5.4 — 2026-05-25 (re-ships the hook with docs-correct quoting; drops useless settings.json)
 
@@ -381,9 +520,9 @@ The `${CLAUDE_PLUGIN_ROOT}` env var sits in its OWN double-quoted JSON token, wi
 
 ### What 0.5.4 ships
 
-- **NEW `legal-memo-writer/hooks/hooks.json`** with the docs-correct quoting: `"python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/auto_approve_cowork.py"`. Matcher: `mcp__cowork__(create_artifact|update_artifact|list_artifacts)`.
-- **NEW `legal-memo-writer/hooks/auto_approve_cowork.py`** — tiny stdlib-only Python script. Reads PreToolUse JSON from stdin, returns `{"hookSpecificOutput": {"permissionDecision": "allow"}}` for the three matching tools, emits nothing for others. Exit code always 0 (the hook never denies). Smoke-tested: matching tool returns allow JSON; non-matching returns empty.
-- **DELETED `legal-memo-writer/settings.json`** — its `permissions.allow` content was ignored per docs.
+- **NEW `memoforge/hooks/hooks.json`** with the docs-correct quoting: `"python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/auto_approve_cowork.py"`. Matcher: `mcp__cowork__(create_artifact|update_artifact|list_artifacts)`.
+- **NEW `memoforge/hooks/auto_approve_cowork.py`** — tiny stdlib-only Python script. Reads PreToolUse JSON from stdin, returns `{"hookSpecificOutput": {"permissionDecision": "allow"}}` for the three matching tools, emits nothing for others. Exit code always 0 (the hook never denies). Smoke-tested: matching tool returns allow JSON; non-matching returns empty.
+- **DELETED `memoforge/settings.json`** — its `permissions.allow` content was ignored per docs.
 - **README** gains a section explaining what the hook does and how to manually add the same allow rules to `~/.claude/settings.json` as a fallback if the hook is not honored by a particular Cowork build.
 
 ### Open caveat
@@ -394,7 +533,7 @@ Per the official permissions docs, "Hook decisions do not bypass permission rule
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass.
 - Hook smoke test (Git Bash): `echo '{"tool_name":"mcp__cowork__update_artifact"}' | python hooks/auto_approve_cowork.py` returns valid allow-decision JSON; with non-cowork tool returns empty (defer).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.4.zip`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.4.zip`.
 
 ## 0.5.3 — 2026-05-25 (hotfix — pulls the broken hook from 0.5.2)
 
@@ -403,7 +542,7 @@ Per the official permissions docs, "Hook decisions do not bypass permission rule
 ### What changed in 0.5.3
 
 - **DELETED** `hooks/hooks.json` and `hooks/auto_approve_cowork.py`. The hook backup is removed entirely.
-- **KEPT** `legal-memo-writer/settings.json` from 0.5.2 — that file is the declarative permission grant. It does not depend on path expansion and should still suppress per-call prompts when the plugin is enabled.
+- **KEPT** `memoforge/settings.json` from 0.5.2 — that file is the declarative permission grant. It does not depend on path expansion and should still suppress per-call prompts when the plugin is enabled.
 - No agent or skill prompt changes; the v0.5.1 Pre-return checklist remains intact.
 
 ### Why hook-only-no-settings or settings-only-no-hook was the right diagnosis
@@ -420,7 +559,7 @@ The "belt-and-suspenders" rationale of v0.5.2 (`settings.json` + hook for defens
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass (no scripts changed; hook was outside the test surface).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.3.zip`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.3.zip`.
 
 ## 0.5.2 — 2026-05-25
 
@@ -432,9 +571,9 @@ The v0.5.0-probe build used ONE subagent that called `update_artifact` four time
 
 ### What changed
 
-- **NEW `legal-memo-writer/settings.json`** at the plugin root, shipping `permissions.allow` for the three Cowork artifact tools (`mcp__cowork__create_artifact`, `mcp__cowork__update_artifact`, `mcp__cowork__list_artifacts`). Per Anthropic's documented "ship-default-settings-with-your-plugin" pattern, these rules merge into the active session's permission set when the plugin is enabled. Subagents inherit parent-session permissions, so every dispatched subagent picks up the allow rules automatically.
-- **NEW `legal-memo-writer/hooks/hooks.json`** declaring a `PreToolUse` hook with matcher `mcp__cowork__(create_artifact|update_artifact|list_artifacts)` that invokes the Python script below.
-- **NEW `legal-memo-writer/hooks/auto_approve_cowork.py`** — a tiny Python hook (no third-party deps). Reads the PreToolUse JSON from stdin, returns `{"hookSpecificOutput": {"permissionDecision": "allow"}}` for the three matching tools, and emits nothing for everything else (defer to normal permission flow). Exit code is always 0 — the hook NEVER denies; it only allows or defers. Tested via `echo '{"tool_name":"mcp__cowork__update_artifact"}' | python hooks/auto_approve_cowork.py` (returns the allow JSON) and same with a non-cowork tool (returns nothing).
+- **NEW `memoforge/settings.json`** at the plugin root, shipping `permissions.allow` for the three Cowork artifact tools (`mcp__cowork__create_artifact`, `mcp__cowork__update_artifact`, `mcp__cowork__list_artifacts`). Per Anthropic's documented "ship-default-settings-with-your-plugin" pattern, these rules merge into the active session's permission set when the plugin is enabled. Subagents inherit parent-session permissions, so every dispatched subagent picks up the allow rules automatically.
+- **NEW `memoforge/hooks/hooks.json`** declaring a `PreToolUse` hook with matcher `mcp__cowork__(create_artifact|update_artifact|list_artifacts)` that invokes the Python script below.
+- **NEW `memoforge/hooks/auto_approve_cowork.py`** — a tiny Python hook (no third-party deps). Reads the PreToolUse JSON from stdin, returns `{"hookSpecificOutput": {"permissionDecision": "allow"}}` for the three matching tools, and emits nothing for everything else (defer to normal permission flow). Exit code is always 0 — the hook NEVER denies; it only allows or defers. Tested via `echo '{"tool_name":"mcp__cowork__update_artifact"}' | python hooks/auto_approve_cowork.py` (returns the allow JSON) and same with a non-cowork tool (returns nothing).
 - **No agent or skill prompt changes** — substantive pipeline behavior is identical to 0.5.1. The only effect is that Cowork should now stop prompting the user for artifact tool approvals.
 
 ### Two mechanisms, defense-in-depth
@@ -445,13 +584,13 @@ Deny rules in user settings still take precedence over both mechanisms (per [Con
 
 ### Effect on users
 
-When `legal-memo-writer-0.5.2.zip` is installed in Cowork and the plugin is enabled, the next `/legal-memo-writer:memo` run should produce zero permission prompts for `mcp__cowork__*` artifact tools. The user sees the same chat scroll "Updated artifact: ..." strips and sidebar card refreshes as v0.5.1 — minus the modal interruptions.
+When `memoforge-0.5.2.zip` is installed in Cowork and the plugin is enabled, the next `/memoforge:memo` run should produce zero permission prompts for `mcp__cowork__*` artifact tools. The user sees the same chat scroll "Updated artifact: ..." strips and sidebar card refreshes as v0.5.1 — minus the modal interruptions.
 
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass (no scripts changed).
 - Hook smoke test (Git Bash): `echo '{"tool_name":"mcp__cowork__update_artifact"}' | python hooks/auto_approve_cowork.py` → returns valid allow-decision JSON. With `tool_name=Bash` → returns no output.
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.2.zip === git tag v0.5.2`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.2.zip === git tag v0.5.2`.
 
 ## 0.5.1 — 2026-05-25
 
@@ -478,7 +617,7 @@ Same v0.5.0 architecture and the same memo output. The sidebar live-progress das
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — all 115 tests still pass (no scripts changed).
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.1.zip === git tag v0.5.1`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.1.zip === git tag v0.5.1`.
 
 ## 0.5.0 — 2026-05-25
 
@@ -486,7 +625,7 @@ Same v0.5.0 architecture and the same memo output. The sidebar live-progress das
 
 ### Why
 
-v0.2.0 attempted live progress via orchestrator-side `update_artifact` calls and was rolled back because those calls buffer to end-of-turn (same failure mode as the Cowork text-buffering bug). The v0.2.0 postmortem (`docs/postmortems/v0.2.0-live-progress.md`) flagged ONE open hypothesis (§9): would calls made from INSIDE a dispatched subagent bypass the orchestrator-turn buffer? The probe dist `legal-memo-writer-0.5.0-probe.zip` (developer-only, preserved on disk, README untouched) tested this empirically on 2026-05-25 with explicit 25-second sleeps and a falsifiable user-question framing. Result: STREAMING PASS — the artifact strips and sidebar card refresh DO surface in the parent chat scroll as the subagent works, not buffered to end-of-turn. v0.5.0 productionises that mechanism.
+v0.2.0 attempted live progress via orchestrator-side `update_artifact` calls and was rolled back because those calls buffer to end-of-turn (same failure mode as the Cowork text-buffering bug). The v0.2.0 postmortem (`docs/postmortems/v0.2.0-live-progress.md`) flagged ONE open hypothesis (§9): would calls made from INSIDE a dispatched subagent bypass the orchestrator-turn buffer? The probe dist `memoforge-0.5.0-probe.zip` (developer-only, preserved on disk, README untouched) tested this empirically on 2026-05-25 with explicit 25-second sleeps and a falsifiable user-question framing. Result: STREAMING PASS — the artifact strips and sidebar card refresh DO surface in the parent chat scroll as the subagent works, not buffered to end-of-turn. v0.5.0 productionises that mechanism.
 
 ### What changed
 
@@ -510,14 +649,14 @@ v0.2.0 attempted live progress via orchestrator-side `update_artifact` calls and
 
 Same query, same memo output, same wallclock — the user now SEES the pipeline running. A typical Full-mode 5-iteration run produces ~20–35 distinct "Updated artifact" indicator strips in the chat scroll plus continuous sidebar card refreshes throughout the run, instead of the prior single-flush-at-Phase-7.5-then-silence-until-Phase-12 experience.
 
-The substantive pipeline is otherwise unchanged. The skip rule means the pipeline still runs cleanly when Cowork's artifact tools are unavailable — the substantive memo work is never blocked by a live-progress emission. The probe skill (`/legal-memo-writer:probe`) and the `probe-subagent-streamer` agent that proved §9 have been removed from the production zip; they remain in `dist/legal-memo-writer-0.5.0-probe.zip` for historical record.
+The substantive pipeline is otherwise unchanged. The skip rule means the pipeline still runs cleanly when Cowork's artifact tools are unavailable — the substantive memo work is never blocked by a live-progress emission. The probe skill (`/memoforge:probe`) and the `probe-subagent-streamer` agent that proved §9 have been removed from the production zip; they remain in `dist/memoforge-0.5.0-probe.zip` for historical record.
 
 ### Verification
 
 - `python -m unittest discover -s scripts/tests` — **all 115 tests pass** (83 baseline + 32 new render_live_progress tests). No regressions in the existing 83.
-- Manifest match: `.claude-plugin/plugin.json === README badge === dist/legal-memo-writer-0.5.0.zip === git tag v0.5.0`.
+- Manifest match: `.claude-plugin/plugin.json === README badge === dist/memoforge-0.5.0.zip === git tag v0.5.0`.
 
-> Version note: `0.5.0-probe` was the probe build that resolved §9 of the v0.2.0 postmortem. It is preserved on disk as `dist/legal-memo-writer-0.5.0-probe.zip` and was never made the current README's recommended install — only this 0.5.0 release is.
+> Version note: `0.5.0-probe` was the probe build that resolved §9 of the v0.2.0 postmortem. It is preserved on disk as `dist/memoforge-0.5.0-probe.zip` and was never made the current README's recommended install — only this 0.5.0 release is.
 
 ## 0.4.0 — 2026-05-25
 
@@ -529,11 +668,11 @@ The plugin had two hardcoded sources of style: `lib/prose-style.md` (tone, sente
 
 ### What changed
 
-- **New skill `/legal-memo-writer:style`** — single entry point for all profile management (`new` / `list` / `use` / `show` / `delete`). Sub-actions are arguments, not separate skills, so only one command appears in slash autocomplete. Interactive menu when run without arguments; direct sub-action when arguments are provided. Frontmatter `argument-hint` documents both forms.
+- **New skill `/memoforge:style`** — single entry point for all profile management (`new` / `list` / `use` / `show` / `delete`). Sub-actions are arguments, not separate skills, so only one command appears in slash autocomplete. Interactive menu when run without arguments; direct sub-action when arguments are provided. Frontmatter `argument-hint` documents both forms.
 - **New subagent `style-extractor` (`model: opus`)** — reads example memos (`.docx` via pandoc, `.pdf` and `.md` directly), text rules (inline or path), or both, and writes `prose-style.md` + (conditionally) `template.md` + `meta.json` + `rules.md` into the profile directory. Rules win over example-extracted patterns on conflict; every rule is origin-tagged `(from examples)` / `(from rules)` / `(rule overrides example pattern)`. Sources and Disclaimer are always present in the extracted template (compliance minimum).
-- **Profiles stored globally** at `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/`, with `default-profile.txt` recording the user's preselected default. Cross-project; cross-platform paths are POSIX-form in `state.json`.
+- **Profiles stored globally** at `~/.claude/plugin-data/memoforge/profiles/<name>/`, with `default-profile.txt` recording the user's preselected default. Cross-project; cross-platform paths are POSIX-form in `state.json`.
 - **One profile = one mode.** The user picks Brief or Full at creation; for both modes, create two profiles. No mode-binding heuristics — explicit user choice.
-- **New script `scripts/resolve_style_profile.py`** — canonical write path for profiles. Sub-commands for the skill: `list`, `get-default`, `set-default`, `clear-default`, `validate-name`, `validate-profile`, `delete`, `read-meta`, `resolve-paths`, `init-profile`, `write-meta`. Env var `LEGAL_MEMO_PROFILES_HOME` overrides the default location (used by tests and power users). 29 new unit tests in `scripts/tests/test_resolve_style_profile.py`.
+- **New script `scripts/resolve_style_profile.py`** — canonical write path for profiles. Sub-commands for the skill: `list`, `get-default`, `set-default`, `clear-default`, `validate-name`, `validate-profile`, `delete`, `read-meta`, `resolve-paths`, `init-profile`, `write-meta`. Env var `MEMOFORGE_PROFILES_HOME` overrides the default location (used by tests and power users). 29 new unit tests in `scripts/tests/test_resolve_style_profile.py`.
 - **`skills/memo/SKILL.md` Phase 1.5 step 8** — new style-profile resolve. **Zero overhead when the user has no profiles**: nothing is asked, nothing is logged, `config.{style_profile, style_profile_path, prose_style_path, template_path}` are all written as `null`. When at least one profile exists, an `AskUserQuestion` checkpoint asks which profile (default preselected) or "Standard plugin style (built-in)". If the picked profile's `mode_binding` differs from the run's mode, a follow-up checkpoint asks whether to switch mode or use the built-in template only.
 - **`state.json.config`** gets four optional fields (all default `null`): `style_profile`, `style_profile_path`, `prose_style_path`, `template_path`. When non-null, the writer and reviewers read the custom files instead of the built-in ones. `template_id` is still always set (mode-bound) so classifier and validator logic remain stable.
 - **6 agents patched** to read the new state fields and switch between built-in and custom prose-style/template: `memo-writer`, `style-reviewer`, `clarity-reviewer`, `logic-reviewer`, `counterargument-reviewer`, `revision-mediator`. Each agent's "Custom style profile" section documents which hardcoded checks are suppressed in custom-profile mode and which still apply (structural integrity, grammar, substantive analysis quality are profile-agnostic).
@@ -541,23 +680,23 @@ The plugin had two hardcoded sources of style: `lib/prose-style.md` (tone, sente
 
 ### Effect on users
 
-- Users who have never used the Style Studio see no change. `/legal-memo-writer:memo` runs exactly as before, with the bundled prose-style and templates.
-- Users who run `/legal-memo-writer:style new my-firm --examples ./samples/ --mode full` get a profile they can apply to all future memos with `/legal-memo-writer:style use my-firm`. The next `/memo` run preselects this profile at the Phase 1.5 checkpoint.
+- Users who have never used the Style Studio see no change. `/memoforge:memo` runs exactly as before, with the bundled prose-style and templates.
+- Users who run `/memoforge:style new my-firm --examples ./samples/ --mode full` get a profile they can apply to all future memos with `/memoforge:style use my-firm`. The next `/memo` run preselects this profile at the Phase 1.5 checkpoint.
 - Cross-project: profiles live in the user home, so a profile created from `~/work/contracts/` examples can be used from `~/work/privacy/` too.
 - Confidence: `meta.json.confidence` (0.0-1.0) is computed by the extractor — see the skill output. Below 0.6 the skill prints a warning when set as default.
 
 ### Verification
 
 - Unit tests: `python -m unittest discover -s scripts/tests` — 83 tests pass (29 new + 54 existing).
-- Smoke (no profiles): `/legal-memo-writer:memo "<q>"` with empty `~/.claude/plugin-data/legal-memo-writer/profiles/` → Phase 1.5 has no extra checkpoint, identical UX to v0.3.0.
-- Smoke (with profile): `/legal-memo-writer:style new test --rules "no em-dashes; OSCOLA citations" --mode brief` → `/legal-memo-writer:style use test` → `/legal-memo-writer:memo "<q>"` → Phase 1.5 shows the new style checkpoint with `test` preselected.
+- Smoke (no profiles): `/memoforge:memo "<q>"` with empty `~/.claude/plugin-data/memoforge/profiles/` → Phase 1.5 has no extra checkpoint, identical UX to v0.3.0.
+- Smoke (with profile): `/memoforge:style new test --rules "no em-dashes; OSCOLA citations" --mode brief` → `/memoforge:style use test` → `/memoforge:memo "<q>"` → Phase 1.5 shows the new style checkpoint with `test` preselected.
 - Manifest match: `.claude-plugin/plugin.json` version === README badge === git tag `v0.4.0` === dist zip filename.
 
 ## 0.3.0 — 2026-05-25
 
 **Per-agent model assignment.** All 15 subagents now declare an explicit `model:` in their frontmatter. Previously every agent silently inherited the session model, so a single Sonnet/Opus choice applied uniformly across creative drafting, mechanical structuring, and pattern-detection — overspending on simple tasks and underspending on hard ones.
 
-> Version note: 0.2.0 was reserved for the live-progress sidebar attempt (rolled back, see `docs/postmortems/v0.2.0-live-progress.md`); the on-disk `dist/legal-memo-writer-0.2.0.zip` is the artifact of that failed iteration and was never republished. To avoid clashing with that filename, the next user-facing release after 0.1.1 is 0.3.0.
+> Version note: 0.2.0 was reserved for the live-progress sidebar attempt (rolled back, see `docs/postmortems/v0.2.0-live-progress.md`); the on-disk `dist/memoforge-0.2.0.zip` is the artifact of that failed iteration and was never republished. To avoid clashing with that filename, the next user-facing release after 0.1.1 is 0.3.0.
 
 ### Why
 
@@ -578,17 +717,17 @@ The pipeline has three distinct intelligence tiers:
 
 A typical Full-mode run now uses Opus on 6 of 15 agents and Sonnet on 9, instead of the user's session model uniformly. Expect higher cost per memo when the session is on Sonnet (because 6 agents are bumped up to Opus) but better intake/counterargument depth and grounding accuracy. Users on Opus sessions see partial cost relief (9 agents bumped down to Sonnet) without quality regression on those agents.
 
-To override the per-agent assignment for a single run, set `CLAUDE_CODE_SUBAGENT_MODEL` in the environment before launching `/legal-memo-writer:memo`.
+To override the per-agent assignment for a single run, set `CLAUDE_CODE_SUBAGENT_MODEL` in the environment before launching `/memoforge:memo`.
 
 - Manifest match: `.claude-plugin/plugin.json` version === README badge === git tag `v0.3.0` === dist zip filename.
 
 ## 0.1.1 — 2026-05-22
 
-**Hide internal pipeline modules from slash-command autocomplete.** Moves three "skills" out of `skills/` into a new `lib/` directory so they no longer register as `/legal-memo-writer:<name>` commands. Pipeline behaviour is unchanged.
+**Hide internal pipeline modules from slash-command autocomplete.** Moves three "skills" out of `skills/` into a new `lib/` directory so they no longer register as `/memoforge:<name>` commands. Pipeline behaviour is unchanged.
 
 ### Why
 
-`/legal-memo-writer:` autocomplete listed six commands, but only three (`memo`, `continue`, `status`) were user-facing entry points. The other three (`legal-memo-prose-style`, `legal-memo-docx-render`, `revision-loop`) were internal modules that `/memo` loaded via `Read` or invoked via `Bash` — they never needed a user-typed slash form. Showing them in autocomplete confused users into picking the wrong command.
+`/memoforge:` autocomplete listed six commands, but only three (`memo`, `continue`, `status`) were user-facing entry points. The other three (`legal-memo-prose-style`, `legal-memo-docx-render`, `revision-loop`) were internal modules that `/memo` loaded via `Read` or invoked via `Bash` — they never needed a user-typed slash form. Showing them in autocomplete confused users into picking the wrong command.
 
 Claude Code plugin SDK has no `hidden` / `user_invocable` frontmatter flag — the loader scans `skills/` and registers every `SKILL.md` as a slash command. The only reliable mechanism to remove a skill from slash autocomplete is to move it out of `skills/`. `lib/` is the conventional name for "shared modules used by the main code"; the mental model becomes "`skills/` is what the user types; `lib/` is what the pipeline reads".
 
@@ -602,9 +741,9 @@ Claude Code plugin SDK has no `hidden` / `user_invocable` frontmatter flag — t
 
 ### Effect on users
 
-`/legal-memo-writer:` autocomplete now shows three commands (`memo`, `continue`, `status`) instead of six. Pipeline behaviour is unchanged — `/memo` still loads `lib/prose-style.md` at the same Phase 3 and Phase 8 reads, still calls `lib/docx-render/scripts/md_to_docx.py` at the Phase 11 export step, still references `lib/revision-loop.md` in Phase 9.
+`/memoforge:` autocomplete now shows three commands (`memo`, `continue`, `status`) instead of six. Pipeline behaviour is unchanged — `/memo` still loads `lib/prose-style.md` at the same Phase 3 and Phase 8 reads, still calls `lib/docx-render/scripts/md_to_docx.py` at the Phase 11 export step, still references `lib/revision-loop.md` in Phase 9.
 
-If a user had built muscle memory for `/legal-memo-writer:legal-memo-prose-style` or `:revision-loop` to peek at internal methodology, they now open `lib/prose-style.md` or `lib/revision-loop.md` in the file viewer instead.
+If a user had built muscle memory for `/memoforge:legal-memo-prose-style` or `:revision-loop` to peek at internal methodology, they now open `lib/prose-style.md` or `lib/revision-loop.md` in the file viewer instead.
 
 ### Verification
 
@@ -626,13 +765,13 @@ The `0.0.x` series captured 52 iterative refinements driven by internal testing 
 - **`README.md`** — full rewrite for public consumption. New sections: at-a-glance pipeline diagram, agent table (what each of the 15 subagents does), skills table, mode comparison (Brief vs Full), three-checkpoint UX walkthrough, output-folder resolution, MCP/web-search policy summary, customization, known limitations, repo layout.
 - **`LICENSE`** — MIT license added.
 - **`.claude-plugin/plugin.json`** — version bumped `0.0.52` → `0.1.0`.
-- **`dist/legal-memo-writer-0.1.0.zip`** — clean release build, forward-slash paths (Cowork plugin loader compatible).
+- **`dist/memoforge-0.1.0.zip`** — clean release build, forward-slash paths (Cowork plugin loader compatible).
 - No agent prompts, skill methodology, or validator schemas changed in this release — `0.1.0` is purely the public-release packaging of `0.0.52`.
 
 ### Verification
 
 - `python3 -m unittest discover -s scripts/tests` — 54/54 OK (no code changes since 0.0.52).
-- Zip integrity: extracted `dist/legal-memo-writer-0.1.0.zip` and confirmed forward-slash separators throughout.
+- Zip integrity: extracted `dist/memoforge-0.1.0.zip` and confirmed forward-slash separators throughout.
 - Manifest match: `.claude-plugin/plugin.json` version === README badge === git tag `v0.1.0` === dist zip filename.
 
 ## 0.0.52 — 2026-05-22
@@ -950,7 +1089,7 @@ If any of these become a problem in production, the gates can be re-added later 
 
 ### Verification
 
-In a Cowork session: run `/legal-memo-writer:memo "<query>"`, approve the plan, let research run, type `continue` at the source-review checkpoint. The chat then goes quiet for ~15–30 minutes while the side panel cycles through items #10 → #11 (with iteration N updates) → #12 (with polish updates if applicable) → #13 → #14. At the end of Phase 12, the assistant turn ends, Cowork flushes the entire audit trail at once, and the final docx artifact card appears.
+In a Cowork session: run `/memoforge:memo "<query>"`, approve the plan, let research run, type `continue` at the source-review checkpoint. The chat then goes quiet for ~15–30 minutes while the side panel cycles through items #10 → #11 (with iteration N updates) → #12 (with polish updates if applicable) → #13 → #14. At the end of Phase 12, the assistant turn ends, Cowork flushes the entire audit trail at once, and the final docx artifact card appears.
 
 ## 0.0.43 — 2026-05-21
 
@@ -963,7 +1102,7 @@ Cowork's chat renderer only flushes assistant text on three triggers: end-of-ass
 ### Fix
 
 - **Phase 7.5 rewritten.** No more AskUserQuestion. The new checkpoint: Read source-pack and currency-report (Cowork artifact cards), print a 📋 source digest + `continue`/`cancel` text instructions, then END THE ASSISTANT TURN EXPLICITLY. End-of-turn is Cowork's documented flush trigger; it paints all buffered Progress blocks from Phases 5/6/6.5/7 + the digest at once.
-- **Phase 8 in-session resume parser.** Phase 8 now opens with a parse step that reads the user's reply at `current_phase == source_review_pending`. `continue` (or proceed/go/draft/yes/ok) → `current_phase = drafting`; `cancel` (or stop/abort/no) → `current_phase = cancelled_by_user`; anything else → re-show the checkpoint. Cross-session resume via `/legal-memo-writer:continue <task_id> [continue|cancel]` is handled by `continue/SKILL.md`.
+- **Phase 8 in-session resume parser.** Phase 8 now opens with a parse step that reads the user's reply at `current_phase == source_review_pending`. `continue` (or proceed/go/draft/yes/ok) → `current_phase = drafting`; `cancel` (or stop/abort/no) → `current_phase = cancelled_by_user`; anything else → re-show the checkpoint. Cross-session resume via `/memoforge:continue <task_id> [continue|cancel]` is handled by `continue/SKILL.md`.
 - **New phase value `source_review_pending`** added to the canonical state.json enum, replacing the deprecated `heartbeat_pending`. Continue skill auto-migrates v0.0.42 tasks (drops `heartbeat_choice` field, emits `legacy_phase_migrated`).
 - **Phase 5 heads-up strengthened.** New paragraph explicitly explains the silent inter-phase block and the source-review checkpoint as the flush point — pre-warns the user instead of leaving them confused.
 - **TodoWrite item #9 renamed** "Heartbeat checkpoint" → "Source review" with activeForm `"Awaiting source review confirmation"`.
@@ -989,7 +1128,7 @@ The Phase 8 Branch A research-summary-only path was deleted as part of this simp
 
 ### Verification
 
-In a Cowork session: run `/legal-memo-writer:memo "<query>"`, approve the plan, let research run. After Phase 7 source-pack completes, the assistant turn ends and Cowork flushes the entire Phase 5→7 audit trail at once, followed by the source digest and `continue`/`cancel` instructions. Type `continue` → drafting starts in a fresh turn with no chat-batching issue.
+In a Cowork session: run `/memoforge:memo "<query>"`, approve the plan, let research run. After Phase 7 source-pack completes, the assistant turn ends and Cowork flushes the entire Phase 5→7 audit trail at once, followed by the source digest and `continue`/`cancel` instructions. Type `continue` → drafting starts in a fresh turn with no chat-batching issue.
 
 ## 0.0.42 — 2026-05-21
 
@@ -1099,7 +1238,7 @@ Eleven discrepancies identified in the 2026-05-20 external audit, grouped into t
 
 - **WebSearch policy explicitly covers `fact-assumption-analyst` (issue 3).** `pipeline-contract.md` §WebSearch listed four researchers as WebSearch-permitted but didn't mention that `fact-assumption-analyst` inherits the full tool surface (per the Tool inheritance table below it). Added a paragraph clarifying that the analyst's WebSearch use is constrained to preliminary triage and never cited as a legal source — the §WebSearch whitelist is about CITATION authority, not USE.
 - **House style mode-dependent exit thresholds (issue 9).** `legal-memo-house-style.md:107-110` hard-coded `max_iterations: 3` + "all five reviewers", contradicting Quick mode (1 iteration, 3 reviewers). Section rewritten with explicit per-mode rows pointing to `modes.md`.
-- **`disable-model-invocation: true` added to entry-skill frontmatters (issue 11).** `README.md:97` advertised this field for `memo`, `continue`, `status` but none of their frontmatters carried it. Added to all three. Hosts that don't recognize the field ignore it; hosts that do (Cowork) treat `/legal-memo-writer:*` slashes as the only invocation path.
+- **`disable-model-invocation: true` added to entry-skill frontmatters (issue 11).** `README.md:97` advertised this field for `memo`, `continue`, `status` but none of their frontmatters carried it. Added to all three. Hosts that don't recognize the field ignore it; hosts that do (Cowork) treat `/memoforge:*` slashes as the only invocation path.
 
 ### Validator
 
@@ -1141,7 +1280,7 @@ Contract-audit release. Three waves of fixes:
 - **`switch_to_quick` removed everywhere consistently.** Wave 1 removed the value from `validate_state.py`, but left it live in `skills/memo/SKILL.md` (UI option + heartbeat write branch), `skills/memo/state-schema.md`, `skills/memo/references/pipeline-contract.md`, `skills/memo/references/modes.md` (mid-run downgrade section), and `skills/continue/SKILL.md`. Heartbeat AskUserQuestion now exactly two options (`Continue full loop`, `Research summary only`). State schema, pipeline contract, and continue skill normalize legacy `"switch_to_quick"` values written by pre-0.0.39 tasks to `"continue_full"` on resume. `modes.md` documents that mid-run downgrade is not supported until reimplemented.
 - **Phase 2a non-visual intake hang fixed.** Wave 1's audit identified that `skills/memo/SKILL.md:382` said "visualize disabled → Path B" but `:465` made Path B fire only if `visualize_enabled == false` AND `intake-questions.json` is missing/invalid — leaving non-visualize hosts with valid JSON in a dead branch. Path B condition rewritten as an OR (either condition triggers Path B), so non-visualize Claude Code installs no longer stall after intake.
 - **`continue` skill allowed-tools aligned with `memo`.** Wave 1 missed that `skills/continue/SKILL.md:5` had only `Read, Write, Edit, Bash, Task, AskUserQuestion` — no `WebFetch`, `WebSearch`, or MCP. Since researchers without `tools:` inherit from the parent skill, resumed `research` / `currency_check` / `research_sufficiency` follow-up dispatches via `/continue` were silently losing MCP and discovery tools. The continue skill now mirrors the memo skill's full `allowed-tools` list including the `mcp__*` wildcard.
-- **`mcp__*` wildcard added to memo + continue allowed-tools.** The plugin-scoped MCP prefix `mcp__plugin_legal-memo-writer_*` declared in the frontmatter does not match the opaque UUID namespace Cowork actually uses (documented at `memo/SKILL.md:186`). The wildcard ensures MCP tools are inherited regardless of the host's namespace convention. Pipeline-contract.md §Tool inheritance updated to reflect this.
+- **`mcp__*` wildcard added to memo + continue allowed-tools.** The plugin-scoped MCP prefix `mcp__plugin_memoforge_*` declared in the frontmatter does not match the opaque UUID namespace Cowork actually uses (documented at `memo/SKILL.md:186`). The wildcard ensures MCP tools are inherited regardless of the host's namespace convention. Pipeline-contract.md §Tool inheritance updated to reflect this.
 - **Deep mode `targeted_followup_forced` now actually forces a follow-up.** `modes.md:79` declares that Deep mode forces one targeted follow-up even when the sufficiency verdict is `sufficient`, but `memo/SKILL.md:839` and `continue/SKILL.md` only handled `targeted_followup_needed`. Both now branch on `state.json.config.targeted_followup_forced` and, when true, synthesize a follow-up prompt for the weakest issue (per `sufficiency.issue_coverage[]`) and fall through to the standard targeted-followup branch.
 
 ### Fixed (wave 2 — currency JSON wiring, template auto-detection, raw paths)
@@ -1171,7 +1310,7 @@ Contract-audit release. Resolves all 10 blocking and 12 moderate discrepancies i
 - **`memo-writer` em-dash rule unified with house-style.** The old absolute "No em dashes" rule contradicted the house-style allowance of `Term — definition.` in the Background section. Memo-writer now says exactly what house-style says: no em dashes in body text; the definition format is the only allowed em-dash usage.
 - **`cross-jurisdictional` template no longer fights `style-reviewer`.** Memo-writer now adds a canonical `Risk: <highest_verdict>.` summary line after per-jurisdiction lines, and style-reviewer's Risk-pattern check now accepts both forms.
 - **`research-summary-only` template no longer triggers infinite style-reviewer flags.** Style-reviewer now auto-detects the template from the draft's title (`(no legal conclusions)`) or header status line (`Status: research findings only…`) and skips the 4-beat Risk pattern check for that template. Definitions, title format, tone, and grammar checks still apply.
-- **`fact-assumption-analyst` no longer relies on a hardcoded MCP namespace.** Frontmatter `tools:` line is removed entirely, so the agent inherits all MCP tools from the main session like every other researcher (detects MCP servers by function name at runtime). The previous hardcoded `mcp__plugin_legal-memo-writer_*` prefix was fragile in environments that surface MCP under UUID namespaces.
+- **`fact-assumption-analyst` no longer relies on a hardcoded MCP namespace.** Frontmatter `tools:` line is removed entirely, so the agent inherits all MCP tools from the main session like every other researcher (detects MCP servers by function name at runtime). The previous hardcoded `mcp__plugin_memoforge_*` prefix was fragile in environments that surface MCP under UUID namespaces.
 - **`switch_to_quick` heartbeat enum removed.** The value was declared but had no Phase 8 branching logic; users selecting it got `continue_full` behaviour silently. Validator `VALID_HEARTBEAT_CHOICES` now lists only `{pending, continue_full, research_summary_only}`. (Mode-downgrade after Phase 7.5 will be a separate feature if requested.)
 - **Reviewer JSON heterogeneity preserved through the mediator.** Mediator now emits category labels in the consolidated output: `[from citations | unsupported_claim]`, `[from counterarguments | contrary_authority]`, etc. Writer now sees the *type* of fix (paraphrase vs unsupported vs currency) rather than a generic issue+suggestion.
 
@@ -1202,7 +1341,7 @@ Contract-sync release. All 12 verified discrepancies between docs, validators, s
 
 ### Fixed (runtime correctness)
 
-- **Tool inheritance.** `skills/memo/SKILL.md:5` `allowed-tools` now includes `WebFetch`, `WebSearch`, and the two MCP namespace prefixes (`mcp__plugin_legal-memo-writer_courtlistener__*`, `mcp__plugin_legal-memo-writer_legal-data-hunter__*`). Researcher subagents that omit `tools:` now actually inherit the MCP / WebFetch / WebSearch surface they were always written to use.
+- **Tool inheritance.** `skills/memo/SKILL.md:5` `allowed-tools` now includes `WebFetch`, `WebSearch`, and the two MCP namespace prefixes (`mcp__plugin_memoforge_courtlistener__*`, `mcp__plugin_memoforge_legal-data-hunter__*`). Researcher subagents that omit `tools:` now actually inherit the MCP / WebFetch / WebSearch surface they were always written to use.
 - **`fact-assumption-analyst` MCP access.** Frontmatter `tools:` now lists both MCP namespaces in addition to `Read, Write, Glob, Grep, WebFetch`, matching the body instructions.
 - **Quick mode end-to-end.**
   - `skills/memo/SKILL.md:920` (Phase 9) and `skills/continue/SKILL.md` (revision_loop branch) now read `state.json.config.reviewer_list` and dispatch only the configured reviewers (3 in Quick, 5 in Standard/Deep).
@@ -1240,4 +1379,4 @@ Contract-sync release. All 12 verified discrepancies between docs, validators, s
 
 ## 0.0.37 and earlier
 
-No formal changelog was maintained for prior releases. `dist/legal-memo-writer-<version>.zip` archives capture the binary state for versions 0.0.17 through 0.0.37. Reconstruct from `git log` if needed.
+No formal changelog was maintained for prior releases. `dist/memoforge-<version>.zip` archives capture the binary state for versions 0.0.17 through 0.0.37. Reconstruct from `git log` if needed.

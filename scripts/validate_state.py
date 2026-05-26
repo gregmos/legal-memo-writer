@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate legal-memo-writer state.json.
+"""Validate memoforge state.json.
 
 Phase-aware: enforces only the fields that must exist by the current phase.
 The canonical schema is `skills/memo/state-schema.md` — see that file for the
@@ -580,7 +580,7 @@ def validate_state(state: Any) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate legal-memo-writer state.json.")
+    parser = argparse.ArgumentParser(description="Validate memoforge state.json.")
     parser.add_argument("--state", help="Path to state.json")
     parser.add_argument("--workdir", help="Task working directory containing state.json")
     args = parser.parse_args()

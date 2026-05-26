@@ -11,7 +11,7 @@ Single source of truth for `state.json` shape. All skills and agents that read o
 
   "work_dir": "<absolute or platform-native path>", // owner: memo Phase 1 (write-once); USE FOR Read/Write/Bash filesystem operations. May be absolute in Cowork (/sessions/<id>/mnt/...).
   "rel_work_dir": "<CWD-relative form of work_dir>",// owner: memo Phase 1 (write-once); backfilled by continue/SKILL.md if missing on legacy tasks. USE FOR plain-text path display in chat ("Work directory: <path>" lines). Cowork does NOT render either relative or absolute paths as clickable inside chat text — clickability comes from artifact cards on Read/Write/Edit tool calls. This field exists purely so the user sees a short, readable path rather than the absolute Cowork mount path.
-  "output_folder": "<parent of work_dir>",          // owner: memo Phase 1 (write-once); the resolved $CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER / $LEGAL_MEMO_OUTPUT_FOLDER / fallback.
+  "output_folder": "<parent of work_dir>",          // owner: memo Phase 1 (write-once); the resolved $CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER / $MEMOFORGE_OUTPUT_FOLDER / fallback.
 
   "mode": null | "brief" | "full",                  // owner: memo Phase 1.5 (write-once after user picks via AskUserQuestion). Legacy values "quick"|"standard"|"deep" are accepted on read by continue/SKILL.md and silently migrated.
   "config": {                                        // owner: memo Phase 1 initializes to {}; visualize precheck (Phase 1) populates visualize_* keys; Phase 1.5 MERGES mode-config from `skills/memo/references/modes.md` matrix (does NOT overwrite, preserves visualize_* keys). Mid-run mode change is not supported — config is set once at Phase 1.5 and is immutable after.
@@ -25,7 +25,7 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     "template_id": "executive-brief" | "classical-memo",  // direct mode→template binding (Brief → executive-brief, Full → classical-memo). Replaces the previous `template_constraint` object with its forced/bounded/open modes. When a custom-profile `template_path` is set (see below), `template_id` still records the BOUND built-in (so classifier logic and validators keep working), but at draft/review time `template_path` is the authoritative source of structure. `template_id` is therefore always set after Phase 1.5; never null.
 
     // Style-profile fields (all optional, all default null). Populated at Phase 1.5
-    // by the style-resolve step ONLY when ~/.claude/plugin-data/legal-memo-writer/profiles/
+    // by the style-resolve step ONLY when ~/.claude/plugin-data/memoforge/profiles/
     // contains at least one profile AND the user picked one (vs "Standard plugin style").
     // When all four are null, the pipeline reads built-in lib/prose-style.md and
     // templates/<template_id>.md — exactly the pre-Style-Studio behaviour.

@@ -6,7 +6,7 @@ Canonical specification for the `mcp__cowork__create_artifact` + `mcp__cowork__u
 
 Before v0.5.0, the orchestrator's text and tool-indicator strips between subagent dispatches buffered to end-of-turn — the user saw 5–40 minutes of chat silence during Phase 5→Phase 12 even when many subagents had completed work. v0.2.0 tried orchestrator-side `update_artifact` calls to bypass the buffer; that failed (postmortem `docs/postmortems/v0.2.0-live-progress.md` §5).
 
-v0.5.0 resolves postmortem §9 with a different placement: **`update_artifact` calls made from INSIDE a dispatched subagent flush their tool-indicator strips AND refresh the sidebar artifact card in REAL TIME** in the parent orchestrator's chat scroll. Confirmed empirically on 2026-05-25 via `legal-memo-writer-0.5.0-probe.zip` E2E. User-visible result: every heavy subagent (memo-writer, researchers, reviewers, mediator, client-readiness) emits its own progress updates as it works, and the user sees them live in the chat surface.
+v0.5.0 resolves postmortem §9 with a different placement: **`update_artifact` calls made from INSIDE a dispatched subagent flush their tool-indicator strips AND refresh the sidebar artifact card in REAL TIME** in the parent orchestrator's chat scroll. Confirmed empirically on 2026-05-25 via `memoforge-0.5.0-probe.zip` E2E. User-visible result: every heavy subagent (memo-writer, researchers, reviewers, mediator, client-readiness) emits its own progress updates as it works, and the user sees them live in the chat surface.
 
 ## How the channel works
 

@@ -2,7 +2,7 @@
 """
 md_to_docx.py - convert a legal memo markdown draft to a docx.
 
-Used by legal-memo-writer plugin at the export phase. Invoked from the main
+Used by memoforge plugin at the export phase. Invoked from the main
 session via Bash. Reads markdown and applies the visual spec from
 lib/docx-render/README.md (Arial 12pt body, 11pt italic blockquote,
 1-inch margins, single line spacing + 6pt after, justified, bold-paragraph

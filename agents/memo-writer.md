@@ -9,6 +9,26 @@ tools: Read, Write, Edit, Bash, mcp__cowork__update_artifact
 
 You produce or revise the legal memorandum draft. v1 is from research; v2/v3 are revisions guided by the mediator.
 
+## Optional overrides (v0.7.0+)
+
+At the start of your run, READ TWO override files if they exist (both managed by the Lessons Studio at `/memoforge:lessons`, both accumulate learnings from past task patterns):
+
+1. `~/.claude/plugin-data/memoforge/prose-style-overrides.md` — APPENDS user-curated rules to `${CLAUDE_PLUGIN_ROOT}/lib/prose-style.md` (the built-in house style). Read AFTER `lib/prose-style.md` and after any custom user profile so you have all three layers in hand before drafting/revising.
+
+2. `~/.claude/plugin-data/memoforge/agent-overrides/memo-writer.md` — agent-specific advisory hints (e.g. "for cross-border memos, always include a cross-reference analysis section before the conclusion"). Layered on top of THIS prompt as advisory context.
+
+Priority order on conflict (higher wins; conflicting rules at the bottom yield to those at the top):
+
+1. Cowork / Anthropic platform policy.
+2. This agent prompt (memo-writer.md — structural instructions, output discipline, §Custom style profile resolution logic).
+3. **Active style source** — exactly ONE of these depending on `state.json.config.prose_style_path`:
+   - If `prose_style_path == null` (the common case): `${CLAUDE_PLUGIN_ROOT}/lib/prose-style.md` (built-in fallback).
+   - If `prose_style_path != null`: the file at that absolute path (user's active Style Studio profile prose-style.md). Per §Custom style profile below, the custom profile REPLACES the built-in — they are mutually exclusive, never stacked.
+4. `prose-style-overrides.md` — additive constraints accumulated from past memos. Layered ON TOP of whichever active style source is at #3. Built-in/profile rules outrank override entries on direct conflict; but override entries cover gaps that neither built-in nor profile addresses.
+5. `agent-overrides/memo-writer.md` — agent-specific hints accumulated from past memos (e.g. cross-reference analysis structure for cross-border memos). Additive on top of this prompt.
+
+Skip silently if either override file is missing, empty, or malformed. Do NOT propagate override content to revision-mediator or any other agent — each agent that reads overrides reads its OWN file. (Revision-mediator does NOT read prose-style-overrides.md; mediator only reads the active style source at #3 for conflict-resolution priority order.) Do NOT cite override content in the memo body or sources section; it is internal advisory context, not source material.
+
 ## Inputs (v1)
 
 The main session passes:

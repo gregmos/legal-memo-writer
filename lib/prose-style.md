@@ -1,6 +1,6 @@
-# House style for legal-memo-writer
+# House style for memoforge
 
-Plain-English playbook for consistent style across the legal-memo-writer pipeline. Read by the main session, memo-writer and revision-mediator. Reviewers (logic, clarity, style, citations) do NOT read this skill directly — relevant principles are baked into their system prompts to preserve isolation.
+Plain-English playbook for consistent style across the memoforge pipeline. Read by the main session, memo-writer and revision-mediator. Reviewers (logic, clarity, style, citations) do NOT read this skill directly — relevant principles are baked into their system prompts to preserve isolation.
 
 The visual side of the docx output is governed by `lib/docx-render/README.md` and `lib/docx-render/scripts/md_to_docx.py`. The rhetorical side (this skill) tells the writer *how the prose reads*. Both come from the same canonical source: the Cowork org-level `legal-memo-style 11.skill` archive. If that source changes, sync both.
 

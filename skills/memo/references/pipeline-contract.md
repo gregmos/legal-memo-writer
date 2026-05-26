@@ -1,6 +1,6 @@
 # Pipeline contract
 
-Single source of truth for the legal-memo-writer runtime. All other docs (README, `skills/memo/SKILL.md`, `skills/continue/SKILL.md`, `lib/revision-loop.md`, `skills/memo/references/modes.md`, `skills/memo/references/always-deliver.md`, `skills/memo/state-schema.md`, agent prompts) cite this file as canonical instead of restating. If those docs ever appear to diverge from this file, **this file wins** — file a follow-up to bring the diverging doc back in sync.
+Single source of truth for the memoforge runtime. All other docs (README, `skills/memo/SKILL.md`, `skills/continue/SKILL.md`, `lib/revision-loop.md`, `skills/memo/references/modes.md`, `skills/memo/references/always-deliver.md`, `skills/memo/state-schema.md`, agent prompts) cite this file as canonical instead of restating. If those docs ever appear to diverge from this file, **this file wins** — file a follow-up to bring the diverging doc back in sync.
 
 Last revised: 2026-05-20 (0.0.40).
 
@@ -84,11 +84,11 @@ The memo skill's frontmatter `allowed-tools` defines the maximum tool surface th
 ```
 allowed-tools: Read, Write, Edit, Bash, Task, AskUserQuestion, WebFetch, WebSearch,
                mcp__*,
-               mcp__plugin_legal-memo-writer_courtlistener__*,
-               mcp__plugin_legal-memo-writer_legal-data-hunter__*
+               mcp__plugin_memoforge_courtlistener__*,
+               mcp__plugin_memoforge_legal-data-hunter__*
 ```
 
-The `mcp__*` wildcard is required because in Cowork (the primary host) MCP tools surface under an opaque UUID namespace (see Phase 1 precheck in `skills/memo/SKILL.md:186`), not the static `mcp__plugin_legal-memo-writer_*` prefix the manifest declares. The plugin-scoped prefix is retained as a hint for hosts that honor it; the wildcard ensures MCP works wherever the UUID-prefix policy applies. The `continue` skill frontmatter mirrors this set so resumed research / follow-up / currency dispatches inherit the same MCP / WebFetch / WebSearch surface.
+The `mcp__*` wildcard is required because in Cowork (the primary host) MCP tools surface under an opaque UUID namespace (see Phase 1 precheck in `skills/memo/SKILL.md:186`), not the static `mcp__plugin_memoforge_*` prefix the manifest declares. The plugin-scoped prefix is retained as a hint for hosts that honor it; the wildcard ensures MCP works wherever the UUID-prefix policy applies. The `continue` skill frontmatter mirrors this set so resumed research / follow-up / currency dispatches inherit the same MCP / WebFetch / WebSearch surface.
 
 Subagents that omit `tools:` in their frontmatter inherit the entire set. Subagents that declare `tools:` get exactly that set (and no MCP unless `mcp__*` or a matching namespace prefix is explicitly listed).
 
@@ -139,7 +139,7 @@ Banners fire even when `final_status` begins with `approved`, because some fallb
 **Plain text only.** Do NOT wrap file paths in markdown link syntax `[label](path)` in chat output. Empirical Cowork behaviour (0.0.30-0.0.32): relative and absolute paths inside chat text are NOT rendered as clickable file references. Clickability comes from the artifact card Cowork inserts automatically when the model uses `Read` / `Write` / `Edit` tools.
 
 Operational rule for every assistant chat message:
-- File names appear as plain text (e.g. `intake-questions.md`) or as plain-text paths (e.g. `outputs/legal-memo-work/<task_id>/intake-questions.md`).
+- File names appear as plain text (e.g. `intake-questions.md`) or as plain-text paths (e.g. `outputs/memoforge-work/<task_id>/intake-questions.md`).
 - The artifact card from the underlying `Write` tool call is the user's click-to-open affordance.
 - If a file needs to be referenced but no Write/Read/Edit fired for it in this turn, mention it as plain text and tell the user where to find it ("see `<state.json.rel_work_dir>/...`").
 

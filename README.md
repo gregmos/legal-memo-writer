@@ -1,4 +1,4 @@
-# legal-memo-writer
+# memoforge
 
 > Multi-agent legal memo drafting plugin for **Claude Cowork** (primary) and **Claude Code** (best-effort).
 > Takes a free-form legal question, runs the full lawyer workflow — intake, research, drafting, review, polish — and ships a finished `.docx` memo.
@@ -31,7 +31,7 @@ You get a memo that cites real statutes and judgments, names contrary authority,
 
 ### 1. Install
 
-**Cowork:** Settings → Plugins → drag-and-drop `legal-memo-writer-0.6.3.zip` from the [Releases page](../../releases), or install via marketplace.
+**Cowork:** Settings → Plugins → drag-and-drop `memoforge-0.6.3.zip` from the [Releases page](../../releases), or install via marketplace.
 
 **Live-progress dashboard permission setup (one-time, only if needed).** v0.5.4 ships a `PreToolUse` hook that auto-approves the three Cowork artifact tools (`mcp__cowork__create_artifact`, `mcp__cowork__update_artifact`, `mcp__cowork__list_artifacts`) used by the live-progress sidebar dashboard. If that hook is honored by your Cowork build, the plugin runs without surfacing permission prompts during research, drafting, or review. If you still see repeated `Update artifact` prompts after installing 0.5.4, add the following to your user-level `~/.claude/settings.json` as a manual fallback (this is what the hook is doing under the covers; some Cowork builds may not honor plugin-bundled PreToolUse hooks):
 
@@ -70,8 +70,8 @@ If Cowork exposes visualize under a UUID namespace (e.g. `mcp__abc123-visualize-
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_legal-memo-writer_legal-data-hunter__*",
-      "mcp__plugin_legal-memo-writer_courtlistener__*"
+      "mcp__plugin_memoforge_legal-data-hunter__*",
+      "mcp__plugin_memoforge_courtlistener__*"
     ]
   }
 }
@@ -79,8 +79,8 @@ If Cowork exposes visualize under a UUID namespace (e.g. `mcp__abc123-visualize-
 
 **Claude Code (local dev):**
 ```bash
-git clone https://github.com/gregmos/legal-memo-writer.git
-claude --plugin-dir ./legal-memo-writer
+git clone https://github.com/gregmos/memoforge.git
+claude --plugin-dir ./memoforge
 ```
 
 The bundled MCP servers (Legal Data Hunter for multi-jurisdictional law, CourtListener for US case law) auto-register via `.mcp.json`. First MCP call may trigger an OAuth sign-in flow in the browser.
@@ -88,17 +88,17 @@ The bundled MCP servers (Legal Data Hunter for multi-jurisdictional law, CourtLi
 ### 2. Run
 
 ```
-/legal-memo-writer:memo "<your legal question>"
+/memoforge:memo "<your legal question>"
 ```
 
 Examples:
-- `/legal-memo-writer:memo "Can we process biometric data for minors in the EU under GDPR Art. 9 and Art. 22?"`
-- `/legal-memo-writer:memo "Does our US SaaS need a CCPA notice at collection if we only have B2B users?"`
-- `/legal-memo-writer:memo "Is a click-wrap arbitration clause enforceable against UK consumers under the Consumer Rights Act 2015?"`
+- `/memoforge:memo "Can we process biometric data for minors in the EU under GDPR Art. 9 and Art. 22?"`
+- `/memoforge:memo "Does our US SaaS need a CCPA notice at collection if we only have B2B users?"`
+- `/memoforge:memo "Is a click-wrap arbitration clause enforceable against UK consumers under the Consumer Rights Act 2015?"`
 
 ### 3. Reply at the three checkpoints
 
-The pipeline pauses three times. Reply with `/legal-memo-writer:continue <task_id> <action>`:
+The pipeline pauses three times. Reply with `/memoforge:continue <task_id> <action>`:
 
 | Phase | What you'll see | How to reply |
 |---|---|---|
@@ -112,8 +112,8 @@ After plan approval, the rest runs autonomously. You'll see live progress messag
 
 Output lands in (first that exists):
 1. `$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER/<task_id>/`
-2. `$LEGAL_MEMO_OUTPUT_FOLDER/<task_id>/`
-3. `~/Documents/legal-memos/<task_id>/` (default)
+2. `$MEMOFORGE_OUTPUT_FOLDER/<task_id>/`
+3. `~/Documents/memoforge/<task_id>/` (default)
 
 Files you'll find there:
 - `memo.docx` — the final memo, formatted (Arial 12pt, 1" margins, numbered sections)
@@ -129,10 +129,10 @@ Files you'll find there:
 
 | Command | What it does |
 |---|---|
-| `/legal-memo-writer:memo "<query>"` | Start a new memo |
-| `/legal-memo-writer:continue <task_id> <action>` | Reply to an open checkpoint or resume a paused task |
-| `/legal-memo-writer:status [<task_id>]` | Show phase, progress, blockers for one task or list all tasks |
-| `/legal-memo-writer:style [<action> …]` | Manage custom style + formatting profiles (see [Customization](#customization)) |
+| `/memoforge:memo "<query>"` | Start a new memo |
+| `/memoforge:continue <task_id> <action>` | Reply to an open checkpoint or resume a paused task |
+| `/memoforge:status [<task_id>]` | Show phase, progress, blockers for one task or list all tasks |
+| `/memoforge:style [<action> …]` | Manage custom style + formatting profiles (see [Customization](#customization)) |
 
 `<task_id>` is the slug of the working directory (e.g. `memo-20260522T143010Z`). The pipeline prints it when the task starts.
 
@@ -177,7 +177,7 @@ Mid-run switching is not supported — cancel and rerun if you picked the wrong 
    └──────────────────────────────────────────────────────────────┘
 ```
 
-State persists between turns in `state.json` inside the work directory. If the host session dies, `/legal-memo-writer:continue <task_id>` resumes from the last completed phase.
+State persists between turns in `state.json` inside the work directory. If the host session dies, `/memoforge:continue <task_id>` resumes from the last completed phase.
 
 ---
 
@@ -235,9 +235,9 @@ The plugin ships three slash commands. Methodology and rendering live under `lib
 
 | Skill | Type | Purpose |
 |---|---|---|
-| `memo` | Entry (`/legal-memo-writer:memo`) | Main orchestrator. Loaded once at task start, drives the whole pipeline. |
-| `continue` | Entry (`/legal-memo-writer:continue`) | Reply to checkpoints or resume a paused task. |
-| `status` | Entry (`/legal-memo-writer:status`) | Inspect one task or list all tasks. |
+| `memo` | Entry (`/memoforge:memo`) | Main orchestrator. Loaded once at task start, drives the whole pipeline. |
+| `continue` | Entry (`/memoforge:continue`) | Reply to checkpoints or resume a paused task. |
+| `status` | Entry (`/memoforge:status`) | Inspect one task or list all tasks. |
 
 ### Internal library modules (`lib/`)
 
@@ -274,37 +274,37 @@ Define your style **once**, apply to every memo. The plugin reads your saved pro
 
 ```bash
 # From example memos (PDFs, .docx, .md, .txt)
-/legal-memo-writer:style new my-firm --examples ~/memos/2025-q4/ --mode full
+/memoforge:style new my-firm --examples ~/memos/2025-q4/ --mode full
 
 # From written rules (inline text or path to a .md file)
-/legal-memo-writer:style new compact --rules "no em-dashes; OSCOLA citations; ALL CAPS headings" --mode brief
+/memoforge:style new compact --rules "no em-dashes; OSCOLA citations; ALL CAPS headings" --mode brief
 
 # Both (rules win on conflict)
-/legal-memo-writer:style new acme --examples ~/memos/acme/ --rules ~/style/acme-rules.md --mode full
+/memoforge:style new acme --examples ~/memos/acme/ --rules ~/style/acme-rules.md --mode full
 ```
 
-Or just run `/legal-memo-writer:style` with no arguments for an interactive menu.
+Or just run `/memoforge:style` with no arguments for an interactive menu.
 
-The Style Studio extractor (Opus subagent) reads your inputs and writes `prose-style.md` + `template.md` + `meta.json` into `~/.claude/plugin-data/legal-memo-writer/profiles/<name>/`. The files are plain markdown — open and edit them by hand if you want.
+The Style Studio extractor (Opus subagent) reads your inputs and writes `prose-style.md` + `template.md` + `meta.json` into `~/.claude/plugin-data/memoforge/profiles/<name>/`. The files are plain markdown — open and edit them by hand if you want.
 
-**Pick a default** so `/legal-memo-writer:memo` preselects it:
+**Pick a default** so `/memoforge:memo` preselects it:
 
 ```bash
-/legal-memo-writer:style use my-firm
+/memoforge:style use my-firm
 ```
 
 **Other actions:**
 
 ```bash
-/legal-memo-writer:style list              # Table of all profiles, mode bindings, defaults
-/legal-memo-writer:style show my-firm      # Print meta.json + first 30 lines of style/template
-/legal-memo-writer:style delete my-firm    # Remove (with confirmation if it was default)
-/legal-memo-writer:style use --clear       # Drop the default — Phase 1.5 will offer all profiles next time
+/memoforge:style list              # Table of all profiles, mode bindings, defaults
+/memoforge:style show my-firm      # Print meta.json + first 30 lines of style/template
+/memoforge:style delete my-firm    # Remove (with confirmation if it was default)
+/memoforge:style use --clear       # Drop the default — Phase 1.5 will offer all profiles next time
 ```
 
 **One profile, one mode.** A Brief-bound profile applies to executive-briefs (1-3 pages); a Full-bound profile to classical-memos (5-15 pages). If you need both shapes for the same house style, create two profiles (e.g. `my-firm-brief` + `my-firm-full`).
 
-**Zero overhead when empty.** If you never create a profile, `/legal-memo-writer:memo` runs identically to the pre-Style-Studio versions — no extra prompts, no behaviour change. The Phase 1.5 style-pick checkpoint appears only when at least one profile exists.
+**Zero overhead when empty.** If you never create a profile, `/memoforge:memo` runs identically to the pre-Style-Studio versions — no extra prompts, no behaviour change. The Phase 1.5 style-pick checkpoint appears only when at least one profile exists.
 
 **Profile-aware reviewers.** When a custom profile is in effect, `style-reviewer`, `clarity-reviewer`, `logic-reviewer`, `counterargument-reviewer`, and `revision-mediator` all defer to YOUR rules — em-dashes you allow are not flagged, the cap you set replaces the 40-word default, the cross-reference notation you use replaces `(§ N)`. Substantive checks (IRAC, citation accuracy, contrary authority) stay uniform.
 
@@ -314,13 +314,82 @@ If you prefer to edit the bundled style directly (legacy path; affects every use
 
 - Edit `lib/prose-style.md` for tone, sentence/paragraph caps, anti-patterns, reviewer conflict priorities.
 - Edit `templates/classical-memo.md` or `templates/executive-brief.md` for the document structure.
-- In Cowork: files live at `~/.claude/plugins/cache/legal-memo-writer/lib/` and `.../templates/`.
+- In Cowork: files live at `~/.claude/plugins/cache/memoforge/lib/` and `.../templates/`.
 - In Claude Code dev mode: edit the files in your plugin source directory.
 
 ### Output folder (resolution order)
 1. `CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER` (set in Cowork plugin settings)
-2. `LEGAL_MEMO_OUTPUT_FOLDER` (env var)
-3. `~/Documents/legal-memos/` (default)
+2. `MEMOFORGE_OUTPUT_FOLDER` (env var)
+3. `~/Documents/memoforge/` (default)
+
+---
+
+## Cross-run learning — the Lessons Studio (v0.7.0+)
+
+The plugin accumulates structural signals from every memo task and proposes lessons after recurring patterns cross both a numeric threshold and an LLM-judged quality gate. **No memo content crosses tasks** — only counts, categories, scores, and query-pattern keys. Lessons live entirely under `~/.claude/plugin-data/memoforge/` (per-machine, never synced).
+
+### How it works
+
+1. **Every memo task** ends with Phase 11.5 (best-effort, after docx export): the `lessons-extractor` opus subagent reads the task's reviews, draft, intake, currency, and Tier-2 tool-call telemetry logs. It writes 0..10 small JSON **signals** per task to `~/.claude/plugin-data/memoforge/signals/`.
+
+2. **Cross-task synthesis** (same agent, second pass): aggregates signals from the last 30 days; groups by deterministic `pattern_key`; rescues near-threshold groups via LLM semantic clustering when surface words differ but the underlying mechanism is the same (e.g. `clearly` + `plainly` + `obviously` → one weasel-words lesson); applies a four-check quality gate (coherence, overlap-with-built-in, specificity, false-positive risk) before promoting.
+
+3. **Promotion paths:**
+   - **Tier 0** (aggregate stats — convergence rates, reviewer score trajectories, MCP latencies) → recomputed unconditionally every Phase 11.5 directly into `learned-patterns.md`. No lesson_id, no audit record, no "auto-applied" entry. Inspect via the Studio's "View full learned-patterns.md" command.
+   - **Tier 1** (intake hints, currency hints, MCP health entries) → auto-applied to `learned-patterns.md` with an audit record under `lessons/applied/auto/<lesson_id>.md`. Visible in the Studio's "Show auto-applied" view with one-click Undo.
+   - **Tier 2** (prose-style rules) → written as pending lessons targeting `~/.claude/plugin-data/memoforge/prose-style-overrides.md`. Requires user Apply via Studio.
+   - **Tier 3** (per-agent prompt augmentations) → pending lessons targeting `~/.claude/plugin-data/memoforge/agent-overrides/<agent>.md`. Requires user Apply.
+
+4. **Runtime read-side.** On the NEXT memo task: the `memo` skill reads `learned-patterns.md` at Phase 1.4 (advisory only; the Intake-question priority hints inform Phase 2a question ordering via subject substring match — the classification prefix in the hints is ignored at Phase 2a since `classification.type` isn't set until Phase 3). Each of `memo-writer`, `fact-assumption-analyst`, `citation-auditor`, and the three researchers reads its own `agent-overrides/<name>.md` at the start of its run, treating content as additive advisory context (built-in plugin behavior remains authoritative).
+
+### Invoke the Studio
+
+```bash
+# Interactive: summary screen + per-lesson Apply/Reject/Defer/Edit
+/memoforge:lessons
+
+# Read-only dashboard (does not "use up" the since-last-visit window)
+/memoforge:lessons summary
+
+# Roll back a specific applied lesson (auto or manual)
+/memoforge:lessons rollback <lesson_id>
+```
+
+The Studio groups pending lessons by target file, surfaces auto-applied entries since last visit, and offers bulk Apply / Reject actions plus per-lesson review with optional edit-before-applying.
+
+### When you'll see lessons
+
+A single task almost never produces a lesson — Tier 2/3 thresholds require ≥3 distinct tasks across ≥2 classification.types (or ≥5 in the same classification). Expect first substantive lesson proposals after ~5-10 tasks of varied classification, and steady-state of ~3-8 applied lessons after ~30 tasks. Beyond that, the queue stabilizes near zero (the recurring patterns have been captured).
+
+### Privacy and rollback
+
+- **No raw user content** crosses tasks. Signals carry verbatim reviewer-produced quotes (blocking_issue text) and tool-call query summaries — both already structured outputs, not raw memo content.
+- **Per-machine only.** Each plugin install has its own `~/.claude/plugin-data/memoforge/` directory. Nothing syncs across machines.
+- **Fully reversible.** Every applied lesson is reversible via Studio Rollback OR by manually removing the H3 section from the target override file. Every rejected lesson enters a 30-day cooldown to prevent immediate re-proposal.
+- **Disable entirely.** Delete `~/.claude/plugin-data/memoforge/` to revert to plugin defaults — no override files, no learned-patterns hints, no signals. The plugin works identically to v0.6.x in that state.
+
+### Plugin-data layout
+
+```
+~/.claude/plugin-data/memoforge/
+├── profiles/                          (Style Studio — unchanged from v0.6.x)
+├── learned-patterns.md                (advisory, auto-managed)
+├── prose-style-overrides.md           (Studio-managed)
+├── agent-overrides/
+│   ├── memo-writer.md
+│   ├── fact-assumption-analyst.md
+│   ├── citation-auditor.md
+│   ├── statutory-researcher.md
+│   ├── case-law-researcher.md
+│   └── doctrinal-researcher.md
+├── signals/<task_id>-<seq>.json       (per-task structured observations)
+└── lessons/
+    ├── pending/                       (awaiting Studio review)
+    ├── applied/{auto,manual}/         (applied — full audit trail)
+    └── rejected/                      (30-day cooldown)
+```
+
+Env var override (mirrors Style Studio's): `MEMOFORGE_LESSONS_HOME=<path>`.
 
 ---
 
@@ -357,7 +426,7 @@ You never end a session with nothing. See `skills/memo/references/always-deliver
 ## Repo layout
 
 ```
-legal-memo-writer/
+memoforge/
 ├── .claude-plugin/plugin.json     # Plugin manifest
 ├── .mcp.json                      # Bundled MCP servers (Legal Data Hunter, CourtListener)
 ├── agents/                        # 16 worker subagents (15 pipeline + style-extractor)

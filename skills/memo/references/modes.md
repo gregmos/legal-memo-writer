@@ -73,7 +73,7 @@ Print this as a top-level assistant chat message. Do not include an `Artifacts:`
 
 ## Mid-run mode change
 
-Mid-run mode changes are not supported. To switch modes, the user cancels the current task and reruns `/legal-memo-writer:memo "<query>"` from the start. The earlier infrastructure for Standard→Deep escalation and Standard/Deep→Quick downgrade has been removed alongside the three-mode split — with only two modes and a hard mode→template binding, an in-flight rewrite of `state.json.config` would invalidate too much downstream state (drafts already written, reviewers already returned) to be worth supporting.
+Mid-run mode changes are not supported. To switch modes, the user cancels the current task and reruns `/memoforge:memo "<query>"` from the start. The earlier infrastructure for Standard→Deep escalation and Standard/Deep→Quick downgrade has been removed alongside the three-mode split — with only two modes and a hard mode→template binding, an in-flight rewrite of `state.json.config` would invalidate too much downstream state (drafts already written, reviewers already returned) to be worth supporting.
 
 ## Why two modes (not a slider, not three)
 

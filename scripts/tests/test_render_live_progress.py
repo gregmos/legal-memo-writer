@@ -74,6 +74,7 @@ class TestFindPhaseIndex(unittest.TestCase):
             "plan_approval_pending",
             "research",
             "research_sufficiency",
+            "research_sufficiency_followup_pending",
             "currency_check",
             "source_pack",
             "source_review_pending",

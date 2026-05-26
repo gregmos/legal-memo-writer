@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the live-progress dashboard HTML for the legal-memo-writer plugin.
+"""Render the live-progress dashboard HTML for the memoforge plugin.
 
 Reads state.json + a current-step text + the current ISO timestamp, then
 writes an HTML file that mcp__cowork__create_artifact / update_artifact
@@ -71,7 +71,7 @@ PHASES: list[dict[str, Any]] = [
     {"id": "4",    "label": "Plan",         "group": "Plan",               "state_phases": ["planning"]},
     {"id": "5",    "label": "Approve",      "group": "Plan",               "state_phases": ["plan_approval_pending"]},
     {"id": "6",    "label": "Research",     "group": "Research",           "state_phases": ["research"]},
-    {"id": "7",    "label": "Sufficiency",  "group": "Research",           "state_phases": ["research_sufficiency", "currency_check"]},
+    {"id": "7",    "label": "Sufficiency",  "group": "Research",           "state_phases": ["research_sufficiency", "research_sufficiency_followup_pending", "currency_check"]},
     {"id": "8",    "label": "Source-pack",  "group": "Research",           "state_phases": ["source_pack", "source_review_pending"]},
     {"id": "9",    "label": "Draft v1",     "group": "Drafting+Revision",  "state_phases": ["drafting"]},
     {"id": "10",   "label": "Revise",       "group": "Drafting+Revision",  "state_phases": ["revision_loop"]},

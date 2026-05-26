@@ -1,4 +1,4 @@
-# legal-memo-docx-render
+# memoforge docx-render
 
 Methodology and instructions for converting a finalized legal memo markdown to docx. The actual conversion is executed by `scripts/md_to_docx.py` — this SKILL.md tells the model how and when to invoke it, what arguments to pass, and how to interpret failures.
 

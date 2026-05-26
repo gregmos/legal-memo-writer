@@ -13,7 +13,7 @@ Verifies:
 - resolve_paths returns template_path=null when template.md is absent.
 - CLI subcommand surface (subprocess) works end-to-end.
 
-Tests use a tempdir + LEGAL_MEMO_PROFILES_HOME env var so they never touch the
+Tests use a tempdir + MEMOFORGE_PROFILES_HOME env var so they never touch the
 real ~/.claude/plugin-data/ directory.
 """
 
@@ -35,19 +35,19 @@ import resolve_style_profile as rsp  # noqa: E402
 
 
 class _TempHomeMixin:
-    """Mixin: set LEGAL_MEMO_PROFILES_HOME to a fresh tempdir per test."""
+    """Mixin: set MEMOFORGE_PROFILES_HOME to a fresh tempdir per test."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self._prev_env = os.environ.get("LEGAL_MEMO_PROFILES_HOME")
-        os.environ["LEGAL_MEMO_PROFILES_HOME"] = self._tmp.name
+        self._prev_env = os.environ.get("MEMOFORGE_PROFILES_HOME")
+        os.environ["MEMOFORGE_PROFILES_HOME"] = self._tmp.name
         self.home = Path(self._tmp.name)
 
     def tearDown(self):
         if self._prev_env is None:
-            os.environ.pop("LEGAL_MEMO_PROFILES_HOME", None)
+            os.environ.pop("MEMOFORGE_PROFILES_HOME", None)
         else:
-            os.environ["LEGAL_MEMO_PROFILES_HOME"] = self._prev_env
+            os.environ["MEMOFORGE_PROFILES_HOME"] = self._prev_env
         self._tmp.cleanup()
 
 
@@ -254,7 +254,7 @@ class WriteMetaTests(_TempHomeMixin, unittest.TestCase):
 class CliTests(_TempHomeMixin, unittest.TestCase):
     def _run(self, *args):
         env = dict(os.environ)
-        env["LEGAL_MEMO_PROFILES_HOME"] = str(self.home)
+        env["MEMOFORGE_PROFILES_HOME"] = str(self.home)
         result = subprocess.run(
             [sys.executable, str(SCRIPT), *args],
             capture_output=True,

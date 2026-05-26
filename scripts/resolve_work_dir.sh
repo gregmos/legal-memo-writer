@@ -3,9 +3,9 @@
 #
 # Resolution order (first writable wins):
 #   1. $CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER (plugin option)
-#   2. $LEGAL_MEMO_OUTPUT_FOLDER (environment variable)
-#   3. $HOME/Documents/legal-memos (default for desktop installs)
-#   4. outputs/legal-memo-work (sandbox fallback, relative to CWD)
+#   2. $MEMOFORGE_OUTPUT_FOLDER (environment variable)
+#   3. $HOME/Documents/memoforge (default for desktop installs)
+#   4. outputs/memoforge-work (sandbox fallback, relative to CWD)
 #
 # Computes:
 #   - TASK_ID = memo-<UTC-timestamp>-<slug>
@@ -35,9 +35,9 @@ TASK_ID="memo-${TIMESTAMP}-${SLUG}"
 OUTPUT_FOLDER=""
 for CANDIDATE in \
   "$CLAUDE_PLUGIN_OPTION_OUTPUT_FOLDER" \
-  "$LEGAL_MEMO_OUTPUT_FOLDER" \
-  "$HOME/Documents/legal-memos" \
-  "outputs/legal-memo-work"; do
+  "$MEMOFORGE_OUTPUT_FOLDER" \
+  "$HOME/Documents/memoforge" \
+  "outputs/memoforge-work"; do
   [ -z "$CANDIDATE" ] && continue
   if mkdir -p "$CANDIDATE" 2>/dev/null && [ -w "$CANDIDATE" ]; then
     OUTPUT_FOLDER="$CANDIDATE"

@@ -8,6 +8,20 @@ model: sonnet
 Tools strategy: this subagent INHERITS all tools from the main session — no `tools:` allowlist (which would silently strip MCP inheritance) and no `disallowedTools:` denylist. WebSearch is allowed as a discovery tool only (find dockets, neutral citations, canonical court-portal URLs); citation sources must still come from MCP or WebFetch on canonical portals per the boundaries section below.
 -->
 
+## Optional override (v0.7.0+)
+
+At the start of your run — BEFORE any MCP / WebSearch / WebFetch call — if `~/.claude/plugin-data/memoforge/agent-overrides/case-law-researcher.md` exists, Read it once. The file is managed by the Lessons Studio (`/memoforge:lessons`) and accumulates advisory hints from past task patterns — typically CourtListener routing preferences, canonical docket shortcodes for frequently-cited judgments, or fallback strategies when CL is unreliable for specific jurisdictions.
+
+Treat its content as ADDITIONAL advisory context layered on top of this built-in prompt. Built-in plugin behavior remains authoritative when an override would conflict with it (e.g. the WebSearch discovery-vs-citation boundary below cannot be relaxed by an override).
+
+Priority order on conflict (higher wins):
+
+1. Cowork / Anthropic platform policy.
+2. This built-in prompt (including WebSearch boundaries, MCP-first contract, source acquisition policy, rate-limit fallback).
+3. The agent-overrides file (additive, lowest priority).
+
+Skip silently if the file is missing, empty, or malformed. Do NOT propagate content to other researchers. Citations in `research/case-law.md` must still trace to canonical court-portal URLs regardless of override hints.
+
 ## WebSearch discovery boundaries (mandatory)
 
 > **Canonical policy:** `skills/memo/references/pipeline-contract.md §WebSearch` (mirrored in README). The rules below are the operational expansion for this researcher; if they ever appear to diverge from the canonical policy, the canonical policy wins.
@@ -253,6 +267,29 @@ printf "%sZ step=%s detail=%s\n" "$(date -u +%Y-%m-%dT%H:%M:%S)" "<step>" "<deta
 ```
 
 Logging is best-effort. If a log write fails, swallow the error and continue research.
+
+## Tool-call telemetry (v0.7.0+)
+
+In addition to the plain-text per-step log above, append a structured JSONL line to `<work_dir>/logs/case-law-researcher-tools.jsonl` for EVERY external tool call (any MCP namespace including Legal Data Hunter and CourtListener, WebSearch, WebFetch). This is Tier-2 telemetry per `skills/memo/references/logging-contract.md` §"Tier 2 — Structured tool-call telemetry" — see that section for the canonical schema.
+
+Required fields per JSON line: `ts` (ISO 8601 UTC), `tool` (full tool name), `category` (`mcp|websearch|webfetch`), `query` (≤120-char short summary, NEVER the full argument blob), `topic_key`, `result` (`ok|empty|error|ratelimited|timeout`), `latency_ms` (int), `result_size_hint` (int or null), `selected_url` (URL or null), `fallback_used` (short kebab-case reason or null), `iteration` (int — `state.json.current_iteration` if inside revision loop, else null).
+
+**topic_key for case-law searches:** compute deterministically as `<jurisdiction>-<court>-<case-shortname-or-topic>`. Examples: `eu-cjeu-schrems`, `eu-cjeu-meta-bundeskartellamt`, `us-scotus-citizens-united`, `uk-supremecourt-uber`, `de-bgh-vw-emissions`. For broader topic searches without a specific case yet, use `<jurisdiction>-<court>-<topic-keyword>` (e.g. `eu-cjeu-joint-controllership`).
+
+Topic-key drives reformulation detection across tasks (≥2 consecutive WebSearch/MCP calls within 60s for the same key = reformulation candidate). Mirror keys with the statutory-researcher when the underlying topic is the same statute (e.g. both should use `eu-gdpr-art-6` when statutory pulls Art. 6 and case-law pulls case interpretation of Art. 6), so the extractor can correlate.
+
+Bash emission (best-effort; on failure swallow and continue research):
+
+```bash
+mkdir -p "<work_dir>/logs"
+printf '{"ts":"%sZ","tool":"%s","category":"%s","query":"%s","topic_key":"%s","result":"%s","latency_ms":%d,"result_size_hint":%s,"selected_url":%s,"fallback_used":%s,"iteration":%s}\n' \
+  "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+  "<full-tool-name>" "<mcp|websearch|webfetch>" "<≤120 char summary>" "<topic_key>" "<result>" <latency_ms> \
+  "<size or null>" "<\"URL\" or null>" "<\"reason\" or null>" "<int or null>" \
+  >> "<work_dir>/logs/case-law-researcher-tools.jsonl"
+```
+
+This file feeds `agents/lessons-extractor.md` at Phase 11.5. Cross-task signals (CourtListener error rates, repeated empty searches for specific docket types, WebFetch fallback after CL ratelimits) become candidate lessons for `~/.claude/plugin-data/memoforge/agent-overrides/case-law-researcher.md` (reviewed via the Lessons Studio).
 
 ## Live progress
 
