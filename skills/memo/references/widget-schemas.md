@@ -2,7 +2,7 @@
 
 Canonical data-payload shapes for the four `visualize:show_widget` calls in the memo pipeline. The orchestrator builds these JSON objects from `state.json` and pipeline artifacts, then passes them to the widget generator per the cached `visualize:read_me` guidelines.
 
-This document covers the **data payload** the orchestrator must build. The visual rendering rules (layout, color palette, accessibility, ≤size cap) live in the cached `visualize:read_me` output per module. The pre-flight check (`state.json.config.visualize_enabled`) lives in `progress-tracker.md` (which also covers the 5-milestone tracker widget separate from the four below).
+This document covers the **data payload** the orchestrator must build. The visual rendering rules (layout, color palette, accessibility, ≤size cap) live in the cached `visualize:read_me` output per module. The pre-flight check (`state.json.config.visualize_enabled`) for the memo pipeline widgets lives in `progress-tracker.md` (which also covers the 5-milestone tracker widget separate from the table below).
 
 If `visualize_enabled == false` or the widget call throws, skip silently — every phase that uses these payloads has a documented graceful fallback in `SKILL.md`.
 

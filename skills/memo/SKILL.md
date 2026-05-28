@@ -424,40 +424,6 @@ Update `state.json.current_phase = intake_questions_pending`, `state.json.intake
 
 **TodoWrite update.** Item #1 ("Intake") stays `in_progress` here — intake is not complete until the user answers (Phase 2b). No update needed at this transition.
 
-## Phase 1.4 — Read learned patterns (advisory, v0.7.0+)
-
-After Phase 1 init completes and BEFORE Phase 2a intake elicitation, READ the cross-task learned-patterns file ONCE if it exists. The file accumulates advisory hints from past memo tasks (managed by the Lessons Studio `/memoforge:lessons` and the `lessons-extractor` agent at Phase 11.5). It is **advisory only** — never binding instructions, never propagated to subagents.
-
-```bash
-LEARNED_PATTERNS_FILE="${MEMOFORGE_LESSONS_HOME:-$HOME/.claude/plugin-data/memoforge}/learned-patterns.md"
-```
-
-If the file does NOT exist, skip this entire phase silently and proceed to Phase 2a — typical for first-time users or before lessons-extractor has accumulated enough corpus to write the file. No error, no chat output.
-
-If the file exists:
-
-1. **Read it once.** Parse sections: § Convergence statistics, § Intake-question priority hints, § Currency hints, § MCP health, § Recurring patterns.
-
-2. **Staleness check.** Find a `Last update: <ISO>` line near the top. If `Last update` is older than 30 days OR cannot be parsed, ignore all section content for this run. Print one chat line: `📚 learned-patterns.md is older than 30 days; skipping advisory hints this run.` Proceed to Phase 2a without using any hints.
-
-3. **Apply hints conditionally (when fresh) — downstream use points:**
-
-   **Important constraint.** `state.json.classification.type` is set at Phase 3 (planning), which runs AFTER Phase 2a, 2b, AND Phase 1.5. So at the moments where hints would naturally apply (Phase 2a question rendering, Phase 1.5 mode pick), classification.type is still null. Use the following classification-free matching strategies instead:
-
-   a. **Phase 2a intake-question ordering (re-ordering nudge only).** When § Intake-question priority hints contains entries whose subject substring-matches any of `fact-assumption-analyst`'s generated question headers (case-insensitive substring match between the hint's quoted question subject and `checkpoints/intake-questions.json[].header`), render the matched question FIRST in the widget. The hint format includes a classification prefix (e.g. `compliance_check → priority-boost "processing volume"`), but at Phase 2a IGNORE the classification prefix — use only the quoted subject. Example: hint `compliance_check → priority-boost "processing volume"` matches if `fact-assumption-analyst` generated a question whose header contains "processing volume" — render it first regardless of the upcoming classification. Never invent or replace questions; reorder only. This is intentionally a loose match — it surfaces historically-valuable questions when they happen to appear in this task's intake, without requiring classification knowledge upstream.
-
-   b. **Phase 1.5 mode-pick stat hint — SKIPPED in v0.7.0.** The convergence statistics table is keyed by classification.type, which is unavailable at Phase 1.5. A workable Phase-3-aware variant could surface the hint right before plan approval (Phase 4a) when classification.type is known, but that timing is awkward (the user has already picked Brief/Full at this point — too late to act on the stat). Defer to a future Phase 3 polish iteration. For v0.7.0, do NOT prepend any stat hint to the Phase 1.5 mode-pick question.
-
-   c. **Researchers are NOT informed from here.** Researchers read their OWN `agent-overrides/<name>.md` files independently at dispatch time (per their built-in prompts). Do not propagate learned-patterns content into Phase 5 dispatch prompts.
-
-   d. **Other sections** (§ Currency hints, § MCP health, § Recurring patterns) are read but NOT actioned by the orchestrator at any phase. They exist for human inspection (the user reading `learned-patterns.md` directly or via the Lessons Studio's "View full learned-patterns.md" command) and for the lessons-extractor's own dedup pass. The orchestrator's only active uses are 3a above.
-
-4. **Echo policy.** Do NOT echo learned-patterns content into chat verbatim (other than the one-line stat hint in 3b). Do NOT cite the file in `plan.md`, intake outputs, or any subagent prompt. The hints inform ORDERING and FRAMING, never SUBSTANCE.
-
-5. **Best-effort.** If the file exists but parsing fails (malformed sections, unreadable encoding), skip silently and proceed to Phase 2a without hints. Do not fail Phase 1 or the task.
-
-**No `current_phase` change here** — Phase 1.4 is a passive read by the orchestrator, not a state transition. `current_phase` remains `intake_questions_pending` (set at end of Phase 1). No `phase_transition` event is emitted.
-
 ## Phase 2a — Run interactive intake (preferred) or fall back to text
 
 Before asking anything, check whether `checkpoints/intake-questions.json` exists and is valid strict JSON with the schema documented in `agents/fact-assumption-analyst.md`. Branch on that.
@@ -1429,7 +1395,7 @@ If the script fails:
    a. Resolve the source draft deterministically (the no-polish path does NOT produce `v<N>-client-ready.md`): (1) if `drafts/v<N>-client-ready.md` exists for the highest N, use it; (2) else use `state.json.current_draft_path` (which always points at the latest `drafts/v<N>.md` after Phase 8 / 9); (3) else `ls $WORK_DIR/drafts/v*.md` and pick the highest-N file. Then copy to the canonical artifact filename: `cp "<resolved source>" "$WORK_DIR/memo-<slug>.md"`.
    b. Update `state.json.final_docx_path` to the absolute path of the `.md` file (i.e. `<work_dir>/memo-<slug>.md`). The field name `final_docx_path` is preserved for schema stability; the extension is `.md` instead of `.docx`.
    c. Push the banner string `"docx export failed — markdown file delivered. Convert manually with pandoc or save-as docx."` to `state.json.fallback_banners[]` (dedupe — push only once).
-   d. Set `state.json.final_status` and `state.json.current_phase = done` as in the success path below.
+   d. Set `state.json.final_status` and `state.json.current_phase = done`.
    e. Call `Read` on `<work_dir>/memo-<slug>.md` so Cowork inserts an artifact card.
    f. Print the final Progress block; mention the banner in `Notes:`.
 
@@ -1437,7 +1403,7 @@ If the script fails:
 
 **No copy step (success path).** All artifacts already live at the user-visible `$WORK_DIR` (resolved at Phase 1 to the user's chosen output folder or the sandbox-accessible `outputs/memoforge-work/<task_id>/`). The final docx joins them in the same folder. The user can browse to that folder at any time during or after the run. The markdown-fallback `cp` above is intra-`$WORK_DIR` only — it just renames the latest draft to the canonical artifact filename so downstream tooling (Read tool / artifact card / state.json) sees a stable path.
 
-**Emit a `phase_transition` event** to mark the run completion (per `events-contract.md`):
+**Emit a `phase_transition` event** to mark docx delivery (per `events-contract.md`):
 
 ```bash
 # On success path (docx written by python-docx OR pandoc):
@@ -1451,7 +1417,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
   --data '{"from":"export","to":"done","reason":"markdown_fallback_written"}'
 ```
 
-Update `state.json`: `final_status`, `final_docx_path = "$WORK_DIR/memo-<slug>.docx"` (absolute path equal to `<work_dir>/memo-<slug>.docx`; on the markdown fallback path above the extension is `.md`), `current_phase = done`. The legacy `final_artifacts_dir` field is removed — the audit trail folder IS `work_dir` itself.
+Update `state.json`: `final_status`, `final_docx_path = "$WORK_DIR/memo-<slug>.docx"` (absolute path equal to `<work_dir>/memo-<slug>.docx`; on the markdown fallback path above the extension is `.md`), `current_phase = done`. Close the prior timeline entry (`export`) by setting its `completed_at_iso` and append a new entry `{"phase":"done","started_at_iso":"<now>","completed_at_iso":null}` to `state.json.live_progress.timeline`. Also set `state.json.live_progress.phase_started_at_iso = "<now>"`. If `state.json.config.live_progress_enabled == true`, re-render and `mcp__cowork__update_artifact`. The legacy `final_artifacts_dir` field is removed — the audit trail folder IS `work_dir` itself.
 
 **TodoWrite update.** Mark #13 ("Export to docx") = `completed`, #14 ("Finalize and summarize") = `in_progress`. Silent skip if unavailable.
 
@@ -1465,150 +1431,6 @@ After the script succeeds:
 2. **Write a markdown mirror via the `Write` tool.** Copy the final draft content (the same `drafts/v<N>-client-ready.md` or `drafts/v<N>.md` source) to `<work_dir>/memo-<slug>.md` using the `Write` tool. Markdown files reliably get artifact cards from Cowork. This gives the user a guaranteed-clickable preview of the same memo content in plain markdown form even if the docx card from step 1 fails to render.
 
 Both steps add roughly ~1-2 seconds and consume no extra orchestrator context (no chat output from either tool — just the artifact cards Cowork inserts automatically).
-
-## Phase 11.5 — Lessons extraction (best-effort, v0.7.0+)
-
-After the docx (or markdown fallback) is visible to Cowork via the Phase-11 visibility step above, dispatch the `lessons-extractor` subagent. It performs two passes:
-
-1. **Pass 1 — Signal extraction.** Project this task's outputs (state.json, reviews/, drafts/, intake/, research/, logs/*-tools.jsonl, events.jsonl) into 0..10 structured signal files written under `~/.claude/plugin-data/memoforge/signals/`. Each signal carries a deterministic `pattern_key` and verbatim evidence.
-2. **Pass 2 — Cross-task synthesis.** Aggregate signals from the last 30 days. Tier 0 aggregate stats (convergence, reviewer trajectories, MCP latencies) are unconditionally recomputed into `learned-patterns.md`. Tier 1 advisory hints (intake/currency/MCP-health) are auto-applied to `learned-patterns.md` with audit records when threshold + quality gate pass. Tier 2/3 candidates write to `lessons/pending/<id>.md` for review via `/memoforge:lessons` (the Lessons Studio).
-
-This is **best-effort**: any failure in the extractor swallows silently and never blocks Phase 12. The agent enforces this internally, but the orchestrator MUST also treat the dispatch as optional — wrap the `Bash` log-event call with `|| true` and proceed to Phase 12 regardless of extractor outcome.
-
-A single task's evidence is almost never enough to cross a threshold (Tier 2 requires ≥3 distinct tasks across ≥2 classification.types; Tier 3 requires ≥3 distinct tasks with the same statute/MCP-tool pattern). Most runs will write a few signals and promote zero lessons. That is the expected steady state — lessons accumulate over weeks of tasks.
-
-### Resolve lessons home
-
-```bash
-LESSONS_HOME="${MEMOFORGE_LESSONS_HOME:-$HOME/.claude/plugin-data/memoforge}"
-mkdir -p "$LESSONS_HOME"
-```
-
-(The env var override mirrors `MEMOFORGE_PROFILES_HOME` from `scripts/resolve_style_profile.py` — the lessons system shares the same plugin-data root as Style Studio.)
-
-### Dispatch the agent
-
-Use the Agent tool (alias `Task`) with `subagent_type="lessons-extractor"`. Inputs are passed in the prompt — the agent reads `state.json` to discover the rest of work_dir.
-
-```
-Agent(
-  subagent_type="lessons-extractor",
-  prompt="""
-work_dir: <state.json.work_dir, absolute>
-task_id: <state.json.task_id>
-lessons_home: <$LESSONS_HOME from above>
-
-Do both passes per your agent prompt. Best-effort. Return the structured summary line block; the orchestrator parses the counts.
-  """
-)
-```
-
-### Parse the agent's return summary
-
-The agent returns ≤120 words in this exact shape:
-
-```
-Lessons extraction complete.
-
-Pass 1: <N> signals written to ~/.claude/plugin-data/memoforge/signals/
-Pass 2: <M> lessons promoted total.
-  - Auto-applied to learned-patterns.md: <K>
-  - Pending Studio review: <P>
-
-Top pattern keys this run: <list of up to 5 most-frequent pattern_key strings>
-
-Status: ok | extraction_failed:<reason> | pass2_failed:<reason>
-```
-
-Parse with simple string matching:
-- `N = <int after "Pass 1: ">` → `signals_written`
-- `M = <int after "Pass 2: ">` → `lessons_promoted`
-- `K = <int after "Auto-applied to learned-patterns.md: ">` → `auto_applied_count`
-- `P = <int after "Pending Studio review: ">` → `pending_count`
-- `T = <int after "Above-threshold groups examined: ">` → `groups_examined`
-- `C = <int after "Semantic merges performed: ">` → `clustering_merges`
-- `V = <int after "Quality-gate vetoes: ">` → `quality_gate_vetoed`
-- `Status` token after `Status: ` → `ok | extraction_failed:<reason> | pass2_failed:<reason>`
-
-If any number cannot be parsed, default it to 0. If `Status` is missing, treat as `ok`. The `T`/`C`/`V` counters are informational — older agent versions or extraction failures may produce a final response without them, which the parser tolerates by defaulting to 0.
-
-If `Status` starts with `extraction_failed:` or `pass2_failed:`, set `severity = warn` in the event below and pull the `<reason>` substring into `data.error`. Otherwise `severity = info` and `data.error = null`.
-
-### Emit `lessons_extracted` event
-
-Per `skills/memo/references/events-contract.md` §"Tier 2 — Cross-run learning events":
-
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
-  --workdir "$WORK_DIR" \
-  --event lessons_extracted \
-  --phase done \
-  --actor memo-skill \
-  --severity "<info|warn>" \
-  --data "{\"signals_written\":<N>,\"lessons_promoted\":<M>,\"auto_applied_count\":<K>,\"pending_count\":<P>,\"groups_examined\":<T>,\"clustering_merges\":<C>,\"quality_gate_vetoed\":<V>,\"lessons_dir\":\"$LESSONS_HOME/lessons\",\"extraction_failed\":<false|true>,\"error\":<null|\"<reason>\">}" \
-  || true
-```
-
-`|| true` is intentional. `log_event.py` failure must not fail Phase 11.5 — the docx is already delivered.
-
-### Phase 12 hint (downstream)
-
-The next phase (Phase 12 — Return summary to user) will append ONE line to the delivery summary IF `pending_count > 0`. The line is added BETWEEN the artifact-card lines and the Stats block, like this:
-
-```
-💡 <P> new lessons proposed for review. Run /memoforge:lessons.
-```
-
-If `pending_count == 0` or the extractor failed entirely, do NOT add this line. (See Phase 12 below for exact placement.)
-
-### Mantras applied vs skipped (deliberate set)
-
-Phase 11.5 follows MOST orchestrator mantras that surround every other subagent dispatch, with ONE deliberate exception. The reasoning matters:
-
-- **`active_subagents` plumbing — APPLIED in full** (set chip before dispatch, clear after return). Unlike a casual interpretation, the live-progress dashboard is NOT in a frozen / terminal state by Phase 11.5. The timeline entry for the `done` phase was opened at the end of Phase 11 (`started_at_iso = <ts>`, `completed_at_iso = null`); it stays open until memo skill end-turn (after Phase 12). During Phase 11.5, Pill #13 "Summary" is rendered as `in_progress`. A `🛠 lessons-extractor` chip inside an in-progress Summary pill is the same UX pattern as `🛠 statutory-researcher` chip inside an in-progress Research pill — useful "pipeline still working" signal that helps the user understand that the docx is delivered but post-delivery learning extraction (5-30 sec) is still happening. See §"`active_subagents` plumbing for this dispatch" below.
-
-- **TodoWrite update — SKIPPED.** The canonical TodoWrite list is exactly the 14 items initialized at Phase 1 step 4a; Phase 12 ends by asserting "All 14 items should now be `completed`". Phase 11.5 is best-effort post-export work that does NOT belong on the user-tracked pipeline list. Adding a #15 item would break the 14-item invariant and confuse the side-panel "complete" state. The chip and `lessons_extracted` event give enough visibility without polluting TodoWrite.
-
-The exception (TodoWrite) is scoped exclusively to Phase 11.5. Every earlier dispatch (Phases 1, 5, 6, 7, 8, 9, 10) continues to follow ALL mantras in full.
-
-### `active_subagents` plumbing for this dispatch
-
-Per the standard mantra at line 366 ("MANDATORY — orchestrator's active_subagents plumbing at every subagent dispatch"), execute the four steps around the `Task(subagent_type="lessons-extractor", ...)` call:
-
-1. **Before dispatch** — atomic `Edit` `state.json.live_progress.active_subagents = ["lessons-extractor"]`.
-2. **Re-render + update_artifact** — run `scripts/render_live_progress.py` + emit `mcp__cowork__update_artifact` so the `🛠 lessons-extractor` chip appears immediately under the in-progress Summary pill.
-3. **Dispatch** — `Task(subagent_type="lessons-extractor", ...)`. Block until return.
-4. **After return** — atomic `Edit` `state.json.live_progress.active_subagents = null`. **Then ALSO explicitly re-render + update_artifact** to clear the chip. Unlike mid-pipeline dispatches (which rely on the next phase_transition or subagent dispatch to refresh the dashboard), Phase 11.5 is the LAST dispatch of the run. Without an explicit post-return render, the `🛠 lessons-extractor` chip would stay visible until manual refresh.
-
-Skip the entire sequence when `state.json.config.live_progress_enabled == false` (per the standard mantra footer).
-
-If the dispatch fails / hangs / times out, `active_subagents` may stay set to `["lessons-extractor"]` until the orchestrator can clear it. Wrap the post-dispatch cleanup in a `try`/`finally`-style guarantee in your own reasoning: clear `active_subagents` AND re-render BEFORE proceeding to Phase 12 emission, regardless of dispatch outcome.
-
-### Emit `agent_dispatched` and `agent_returned` events (audit only)
-
-Although the UI-facing mantras above are skipped, the events.jsonl audit trail SHOULD record the dispatch consistently with every other subagent dispatch. These are Tier-1 events per `events-contract.md` and do not affect the dashboard:
-
-```bash
-# Before Task(subagent_type="lessons-extractor", ...)
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
-  --workdir "$WORK_DIR" \
-  --event agent_dispatched \
-  --phase done \
-  --actor memo-skill \
-  --data '{"subagent_type":"lessons-extractor","purpose":"lessons-extraction","expected_outputs":["signals/<task_id>-*.json"],"dispatch_id":"phase11-5-lessons-extractor-1"}' \
-  || true
-
-# After the agent returns
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/log_event.py" \
-  --workdir "$WORK_DIR" \
-  --event agent_returned \
-  --phase done \
-  --actor memo-skill \
-  --data '{"subagent_type":"lessons-extractor","dispatch_id":"phase11-5-lessons-extractor-1","duration_seconds":<float>,"outputs_written":["~/.claude/plugin-data/memoforge/signals/","~/.claude/plugin-data/memoforge/lessons/","~/.claude/plugin-data/memoforge/learned-patterns.md"],"final_response_summary":"<≤120-char summary of agent return>"}' \
-  || true
-```
-
-Both wrapped in `|| true` — audit-event failure must not fail Phase 11.5. The `dispatch_id` value `phase11-5-lessons-extractor-1` is fixed (lessons-extractor only dispatches once per task).
 
 ## Phase 12 — Return summary to user
 
@@ -1654,14 +1476,6 @@ If status is `forced exit` or `manual review required`, add a final line directi
 ```
 Open the blockers list at reviews/v<N>-mediator.md to see the remaining issues.
 ```
-
-After the delivery summary (and after the optional blockers-list line above, if applicable), append ONE additional line IF Phase 11.5 reported `pending_count > 0` (parsed from `lessons-extractor`'s return summary):
-
-```
-💡 <P> new lessons proposed for review. Run /memoforge:lessons.
-```
-
-Replace `<P>` with the actual integer. If `pending_count == 0`, OR Phase 11.5 was skipped, OR the extractor returned a non-`ok` status — OMIT this line entirely. Do not produce a "0 new lessons" message; silence is the correct state when nothing crossed threshold.
 
 Do not wrap any of these file references in markdown links — they don't render as clickable in Cowork. The user already has artifact cards (from Read/Write tool calls) for the docx and markdown mirror; for other files in the audit trail, they navigate from the work directory.
 

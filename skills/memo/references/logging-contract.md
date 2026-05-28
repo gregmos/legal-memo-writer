@@ -74,7 +74,7 @@ In addition to the plain-text human-readable log above (Tier 1), agents that mak
 
 `<work_dir>/logs/<your-name>-tools.jsonl`
 
-Tier 1 is for human debugging during a run. Tier 2 is machine-readable telemetry that feeds the cross-run learning system (`agents/lessons-extractor.md` at Phase 11.5). Both files are best-effort and independent — a failure in one does not affect the other.
+Tier 1 is for human debugging during a run. Tier 2 is machine-readable per-call telemetry — kept structured so future tooling can parse it deterministically (event counts, latency distributions, rate-limit patterns) without re-scanning prose logs. Both files are best-effort and independent — a failure in one does not affect the other.
 
 ### Schema (one JSON object per line)
 
@@ -147,9 +147,9 @@ Best-effort, same as Tier 1. If a Tier-2 write fails (path unwritable, disk erro
 
 ### Why this is separate from Tier 1
 
-- **Machine-readable.** Tier 2 is parsed deterministically by the extractor; Tier 1 is prose for humans.
+- **Machine-readable.** Tier 2 is structured for deterministic downstream parsing; Tier 1 is prose for humans.
 - **Append-only with no rewrite cost.** Bash `>>` is O(1) per line; Tier 1's cumulative-write pattern (for restricted-toolset agents) is O(N) per line.
-- **Different audience.** Tier 1 = the user watching a long-running block. Tier 2 = the lessons-extractor synthesizing cross-task patterns.
-- **Different lifetime.** Tier 1 is debug-only and discarded after task completion. Tier 2 is read once by lessons-extractor at Phase 11.5, then can be discarded with the rest of the task work_dir.
+- **Different audience.** Tier 1 = the user watching a long-running block. Tier 2 = automated tooling that may want per-call telemetry without re-parsing prose.
+- **Different lifetime.** Tier 1 is debug-only and discarded after task completion. Tier 2 lives in the task work_dir for the lifetime of that task.
 
 A single tool call MAY produce one Tier-1 line AND one Tier-2 line — they are independent and serve different consumers.

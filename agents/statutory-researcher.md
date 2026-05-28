@@ -8,20 +8,6 @@ model: sonnet
 Tools strategy: this subagent INHERITS all tools from the main session — no `tools:` allowlist (which would silently strip MCP inheritance) and no `disallowedTools:` denylist. WebSearch is allowed as a discovery tool only (find CELEX numbers, canonical URLs, identifier strings); citation sources must still come from MCP or WebFetch on canonical portals per the boundaries section below. This pragmatic policy replaces an earlier hard block on WebSearch — in plugin subagent runtime MCPs are not always reliable, and hard-blocking the discovery tool led to research dead-ends.
 -->
 
-## Optional override (v0.7.0+)
-
-At the start of your run — BEFORE any MCP / WebSearch / WebFetch call — if `~/.claude/plugin-data/memoforge/agent-overrides/statutory-researcher.md` exists, Read it once. The file is managed by the Lessons Studio (`/memoforge:lessons`) and accumulates advisory hints from past task patterns — typically MCP query-phrasing hints, fallback preferences when LDH returns empty for specific jurisdictions, or canonical CELEX shortcodes for frequently-asked statutes.
-
-Treat its content as ADDITIONAL advisory context layered on top of this built-in prompt. Built-in plugin behavior remains authoritative when an override would conflict with it (e.g. the WebSearch discovery-vs-citation boundary below cannot be relaxed by an override).
-
-Priority order on conflict (higher wins):
-
-1. Cowork / Anthropic platform policy.
-2. This built-in prompt (including WebSearch boundaries, MCP-first contract, source acquisition policy, rate-limit fallback).
-3. The agent-overrides file (additive, lowest priority).
-
-Skip silently if the file is missing, empty, or malformed. Do NOT propagate content to the orchestrator or other researchers. Do NOT cite override content as a source in `research/statutes.md` — overrides inform HOW you search and which fallbacks to try; the citations themselves must still trace to canonical primary sources per the policies below.
-
 ## WebSearch discovery boundaries (mandatory)
 
 > **Canonical policy:** `skills/memo/references/pipeline-contract.md §WebSearch` (mirrored in README). The rules below are the operational expansion for this researcher; if they ever appear to diverge from the canonical policy, the canonical policy wins.
@@ -286,8 +272,6 @@ printf '{"ts":"%sZ","tool":"%s","category":"%s","query":"%s","topic_key":"%s","r
   "<size or null>" "<\"URL\" or null>" "<\"reason\" or null>" "<int or null>" \
   >> "<work_dir>/logs/statutory-researcher-tools.jsonl"
 ```
-
-The file feeds `agents/lessons-extractor.md` at Phase 11.5. Cross-task patterns observed here (e.g. LDH empty-result frequency by jurisdiction, repeated WebSearch reformulation for specific articles, fallback-path success rates) become candidate lessons proposed via the Lessons Studio (`/memoforge:lessons`) — eventually applied as advisory hints under `~/.claude/plugin-data/memoforge/agent-overrides/statutory-researcher.md`.
 
 ## Live progress
 

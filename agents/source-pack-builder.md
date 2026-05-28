@@ -79,7 +79,7 @@ Method — count distinct cited sources, NOT lines or table rows:
 2. **cases**: distinct entries from `research/case-law.md` (rows where `Type = case`).
 3. **doctrine**: distinct entries from `research/doctrine.md` if present (rows where `Type ∈ {regulator_guidance, academic, industry, other}`); set to 0 if `research/doctrine.md` did not exist.
 
-Atomic Edit (temp + rename, same pattern as everywhere else) writing:
+Atomic Edit (temp + rename, same pattern as everywhere else) writing EXACTLY this shape:
 ```json
 "live_progress": {
   ...other fields stay as they are...,
@@ -90,6 +90,16 @@ Atomic Edit (temp + rename, same pattern as everywhere else) writing:
   }
 }
 ```
+
+**Key names are case-sensitive, exact, and there are exactly three of them.** Common mistakes that have shown up in production runs:
+
+- ❌ `"statute"` (singular) — WRONG. The canonical key is `"statutes"` (plural). This mistake is common because the Phase-12 final-dashboard widget (`widget-schemas.md §"Phase 12 final dashboard"`) uses a separate `source_breakdown` object that DOES use singular kebab keys (`"statute"`, `"case-law"`). That object is unrelated to this one. Do NOT confuse them.
+- ❌ `"case_law"` or `"case-law"` — WRONG. The canonical key is `"cases"`. The snake form `"case_law"` is used elsewhere in the repo as the `layer` field of `research/raw/case-law/_index.json` and as a namespace string in `agents/case-law-researcher.md`, but the `live_progress.source_counts` schema does NOT use it.
+- ❌ Extra keys like `"evidence_rows"`, `"soft-law"`, `"total"`, `"layer_breakdown"` — WRONG. Do NOT invent fields. The schema is closed at exactly three keys.
+- ❌ Stringified ints like `"statutes": "8"` — WRONG. Write integer literals, not quoted strings.
+- ✅ `{"statutes": <int>, "cases": <int>, "doctrine": <int>}` — correct. Exactly these three keys, integer values, nothing else.
+
+(The renderer accepts `"statute"` / `"case_law"` / `"case-law"` as fallback aliases so a single typo does not silently zero out the dashboard chip, but it logs a stderr warning. Do not rely on the alias path — write the canonical schema. Aliases may be removed in a future release.)
 
 If `state.json.config.live_progress_enabled == false`, skip this step entirely (no chip will render anyway). If the source counts are zero in a layer (e.g. no doctrine for this run), still write the integer `0` — do NOT omit the key.
 

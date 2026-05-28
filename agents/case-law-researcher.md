@@ -8,20 +8,6 @@ model: sonnet
 Tools strategy: this subagent INHERITS all tools from the main session — no `tools:` allowlist (which would silently strip MCP inheritance) and no `disallowedTools:` denylist. WebSearch is allowed as a discovery tool only (find dockets, neutral citations, canonical court-portal URLs); citation sources must still come from MCP or WebFetch on canonical portals per the boundaries section below.
 -->
 
-## Optional override (v0.7.0+)
-
-At the start of your run — BEFORE any MCP / WebSearch / WebFetch call — if `~/.claude/plugin-data/memoforge/agent-overrides/case-law-researcher.md` exists, Read it once. The file is managed by the Lessons Studio (`/memoforge:lessons`) and accumulates advisory hints from past task patterns — typically CourtListener routing preferences, canonical docket shortcodes for frequently-cited judgments, or fallback strategies when CL is unreliable for specific jurisdictions.
-
-Treat its content as ADDITIONAL advisory context layered on top of this built-in prompt. Built-in plugin behavior remains authoritative when an override would conflict with it (e.g. the WebSearch discovery-vs-citation boundary below cannot be relaxed by an override).
-
-Priority order on conflict (higher wins):
-
-1. Cowork / Anthropic platform policy.
-2. This built-in prompt (including WebSearch boundaries, MCP-first contract, source acquisition policy, rate-limit fallback).
-3. The agent-overrides file (additive, lowest priority).
-
-Skip silently if the file is missing, empty, or malformed. Do NOT propagate content to other researchers. Citations in `research/case-law.md` must still trace to canonical court-portal URLs regardless of override hints.
-
 ## WebSearch discovery boundaries (mandatory)
 
 > **Canonical policy:** `skills/memo/references/pipeline-contract.md §WebSearch` (mirrored in README). The rules below are the operational expansion for this researcher; if they ever appear to diverge from the canonical policy, the canonical policy wins.
@@ -288,8 +274,6 @@ printf '{"ts":"%sZ","tool":"%s","category":"%s","query":"%s","topic_key":"%s","r
   "<size or null>" "<\"URL\" or null>" "<\"reason\" or null>" "<int or null>" \
   >> "<work_dir>/logs/case-law-researcher-tools.jsonl"
 ```
-
-This file feeds `agents/lessons-extractor.md` at Phase 11.5. Cross-task signals (CourtListener error rates, repeated empty searches for specific docket types, WebFetch fallback after CL ratelimits) become candidate lessons for `~/.claude/plugin-data/memoforge/agent-overrides/case-law-researcher.md` (reviewed via the Lessons Studio).
 
 ## Live progress
 

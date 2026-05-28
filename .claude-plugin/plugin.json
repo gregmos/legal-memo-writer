@@ -1,7 +1,7 @@
 {
   "name": "memoforge",
-  "description": "Multi-agent legal memo drafting with intake questions, legal research, source pack, counterargument review, client-readiness review, docx export, and cross-run learning via the Lessons Studio.",
-  "version": "0.7.2",
+  "description": "Multi-agent legal memo drafting with intake questions, legal research, source pack, counterargument review, client-readiness review, and docx export.",
+  "version": "1.0.0",
   "author": {
     "name": "Grigorii Moskalev"
   }

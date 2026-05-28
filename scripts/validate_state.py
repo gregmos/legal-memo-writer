@@ -404,17 +404,18 @@ def validate_state(state: Any) -> list[str]:
             errors.append(f"final_status must be set by phase '{current_phase}'")
 
     # Phase-aware: final_docx_path must be a non-empty string by `done`,
-    # AND the file must actually exist on disk (per always-deliver.md the user
-    # never reaches `done` without a deliverable, even if Phase 11 fell back to
-    # markdown). Path must be absolute (per state-schema.md final_docx_path
-    # contract; relative paths cannot be reliably re-resolved from validator CWD).
+    # AND the file must actually exist on disk (per always-deliver.md the
+    # user never reaches docx-delivery completion without a deliverable,
+    # even if Phase 11 fell back to markdown). Path must be absolute (per
+    # state-schema.md final_docx_path contract; relative paths cannot be
+    # reliably re-resolved from validator CWD).
     if current_phase == "done":
         fdp = state.get("final_docx_path")
         if not isinstance(fdp, str) or not fdp:
-            errors.append("final_docx_path must be a non-empty string in phase 'done'")
+            errors.append(f"final_docx_path must be a non-empty string in phase '{current_phase}'")
         elif not Path(fdp).is_absolute():
             errors.append(
-                f"final_docx_path must be an absolute path in phase 'done'; got {fdp!r} "
+                f"final_docx_path must be an absolute path in phase '{current_phase}'; got {fdp!r} "
                 "(per state-schema.md — work_dir-rooted absolute)"
             )
         elif not Path(fdp).is_file():

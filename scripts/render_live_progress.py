@@ -54,7 +54,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-# Canonical 13-box phase enumeration. Order MATCHES ACTUAL EXECUTION
+# Canonical 14-box phase enumeration. Order MATCHES ACTUAL EXECUTION
 # (v0.6.1+) — Intake comes before Mode because the orchestrator runs intake
 # elicitation first (gathering facts) and only after the user answers does
 # it pick the memo mode (Brief / Full). Earlier versions inherited a
@@ -82,6 +82,75 @@ PHASES: list[dict[str, Any]] = [
 
 TERMINAL_PHASES = {"done", "failed", "cancelled_by_user"}
 REVISION_LOOP_PHASES = {"revision_loop"}
+
+# Canonical schema for state.live_progress.source_counts is
+# {"statutes", "cases", "doctrine"} per state-schema.md and
+# source-pack-builder.md §"State.json source_counts". Past production runs
+# have occasionally produced non-canonical keys at the writer side because
+# nearby schemas in the codebase use different conventions:
+#   - widget-schemas.md §"Phase 12 final dashboard" `source_breakdown` uses
+#     singular kebab: {"statute", "case-law", "doctrine", "soft-law"};
+#   - research/raw/case-law/_index.json `layer` field uses snake: "case_law";
+#   - currency-checker.md schema mixes plural "statutes" with snake "case_law".
+# The renderer accepts the small alias set below so a single LLM keying
+# mistake does not silently zero out the 📊 chip. When an alias fires we
+# emit a stderr warning so the responsible writer can be tightened — the
+# canonical schema is still the contract; the aliases are belt-and-suspenders.
+_SOURCE_COUNT_ALIASES: dict[str, tuple[str, ...]] = {
+    "statutes": ("statutes", "statute"),
+    "cases": ("cases", "case_law", "case-law"),
+    "doctrine": ("doctrine",),
+}
+
+
+def _coerce_count(v: Any) -> int:
+    """Best-effort coercion of a count value to a non-negative int. None / bad
+    types / non-numeric strings fall through to 0 rather than crashing the
+    render. Booleans are intentionally rejected (int(True) == 1 would be a
+    confusing render value for a count field)."""
+    if v is None or isinstance(v, bool):
+        return 0
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return 0
+    return n if n >= 0 else 0
+
+
+def normalize_source_counts(raw: Any) -> dict[str, int] | None:
+    """Read state.live_progress.source_counts tolerantly.
+
+    Returns a dict with the three canonical keys (all ints) when the input is
+    a dict — even an empty or partial one. Returns None when the input is not
+    a dict, preserving the existing "no chip" behavior for null / unset
+    source_counts.
+
+    Accepts the canonical key plus a small alias set (see _SOURCE_COUNT_ALIASES
+    above) and logs a stderr warning when an alias is used. Extra unknown keys
+    in the input are silently ignored.
+    """
+    if not isinstance(raw, dict):
+        return None
+    normalized: dict[str, int] = {}
+    for canon, aliases in _SOURCE_COUNT_ALIASES.items():
+        chosen_key: str | None = None
+        for k in aliases:
+            if k in raw:
+                chosen_key = k
+                break
+        if chosen_key is None:
+            normalized[canon] = 0
+            continue
+        if chosen_key != canon:
+            sys.stderr.write(
+                f"render_live_progress: source_counts has non-canonical key "
+                f"{chosen_key!r} (expected {canon!r}); accepting via alias. "
+                f"Fix the writer (see agents/source-pack-builder.md §State.json "
+                f"source_counts) — alias fallbacks may be removed in a future "
+                f"release.\n"
+            )
+        normalized[canon] = _coerce_count(raw[chosen_key])
+    return normalized
 
 
 def find_phase_index(current_phase: str) -> int | None:
@@ -150,7 +219,7 @@ def render_html(
     phase_started = parse_iso(phase_started_iso_raw)
     timeline = lp.get("timeline", []) or []
     topic = (lp.get("topic") or "").strip()
-    source_counts = lp.get("source_counts") or None
+    source_counts = normalize_source_counts(lp.get("source_counts"))
 
     # active_subagents: list[str] (v0.6.2). Backwards-compat: accept bare
     # string (v0.6.0–v0.6.1) and wrap it into a single-element list.
@@ -207,11 +276,12 @@ def render_html(
     # Build chips row — only show chips that have data.
     chips_html_parts: list[str] = []
 
-    # Source-counts chip (only when state.live_progress.source_counts populated, typically post-Phase-7)
-    if isinstance(source_counts, dict):
-        statutes_n = source_counts.get("statutes", 0)
-        cases_n = source_counts.get("cases", 0)
-        doctrine_n = source_counts.get("doctrine", 0)
+    # Source-counts chip (only when state.live_progress.source_counts populated, typically post-Phase-7).
+    # source_counts is already normalized (canonical keys, int values) by normalize_source_counts() above.
+    if source_counts is not None:
+        statutes_n = source_counts["statutes"]
+        cases_n = source_counts["cases"]
+        doctrine_n = source_counts["doctrine"]
         chips_html_parts.append(
             f'<div class="chip chip-sources" title="Source counts from research files">'
             f'<span class="chip-icon" aria-hidden="true">📊</span>'

@@ -277,6 +277,107 @@ class TestRenderHtmlV060NewElements(unittest.TestCase):
         self.assertNotIn('class="chip chip-sources"', html)
         self.assertNotIn("📊", html)
 
+    def test_source_counts_alias_statute_singular_accepted(self):
+        """Regression: agent wrote 'statute' (singular) instead of 'statutes' — must still render."""
+        st = _state(source_counts={"statute": 8, "cases": 5, "doctrine": 6})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("8 statutes", html)
+        self.assertIn("5 cases", html)
+        self.assertIn("6 doctrine", html)
+
+    def test_source_counts_alias_case_law_snake_accepted(self):
+        """Regression: agent wrote 'case_law' (snake) instead of 'cases' — must still render."""
+        st = _state(source_counts={"statutes": 8, "case_law": 5, "doctrine": 6})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("8 statutes", html)
+        self.assertIn("5 cases", html)
+        self.assertIn("6 doctrine", html)
+
+    def test_source_counts_alias_case_law_kebab_accepted(self):
+        """Regression: agent wrote 'case-law' (kebab, from widget-schemas) instead of 'cases'."""
+        st = _state(source_counts={"statutes": 8, "case-law": 5, "doctrine": 6})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("5 cases", html)
+
+    def test_source_counts_mixed_aliases_with_extra_keys(self):
+        """The actual prod failure mode: 'statute' + 'case_law' + spurious 'evidence_rows'."""
+        st = _state(source_counts={"statute": 8, "case_law": 5, "doctrine": 6, "evidence_rows": 38})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("8 statutes", html)
+        self.assertIn("5 cases", html)
+        self.assertIn("6 doctrine", html)
+        # evidence_rows must NOT appear anywhere — it's not in the schema.
+        self.assertNotIn("38", html)
+        self.assertNotIn("evidence_rows", html)
+
+    def test_source_counts_string_value_coerced_to_int(self):
+        """Agent might write '"statutes": "8"' (stringified int) — accept it."""
+        st = _state(source_counts={"statutes": "8", "cases": "5", "doctrine": "6"})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("8 statutes", html)
+
+    def test_source_counts_partial_dict_zero_fills_missing(self):
+        """Agent might write only doctrine; statutes/cases default to 0."""
+        st = _state(source_counts={"doctrine": 6})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("0 statutes", html)
+        self.assertIn("0 cases", html)
+        self.assertIn("6 doctrine", html)
+
+    def test_source_counts_empty_dict_renders_all_zeros(self):
+        """Empty dict is a dict — render the chip with all zeros (preserves v0.6.0 behavior)."""
+        st = _state(source_counts={})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn('class="chip chip-sources"', html)
+        self.assertIn("0 statutes", html)
+        self.assertIn("0 cases", html)
+        self.assertIn("0 doctrine", html)
+
+    def test_source_counts_non_dict_treated_as_null(self):
+        """If source_counts is a string / list / int (wrong type), suppress the chip."""
+        for bad in ["foo", ["statutes", "cases"], 5, True]:
+            with self.subTest(value=bad):
+                st = _state(source_counts=bad)
+                html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+                self.assertNotIn('class="chip chip-sources"', html)
+
+    def test_source_counts_bad_value_types_coerce_to_zero(self):
+        """None / bool / non-numeric strings / lists in value positions coerce to 0, no crash."""
+        st = _state(source_counts={"statutes": None, "cases": "not-a-number", "doctrine": [1, 2, 3]})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("0 statutes", html)
+        self.assertIn("0 cases", html)
+        self.assertIn("0 doctrine", html)
+
+    def test_source_counts_negative_coerced_to_zero(self):
+        """Negative counts make no sense for a count field; coerce to 0."""
+        st = _state(source_counts={"statutes": -5, "cases": 5, "doctrine": 6})
+        html = r.render_html(st, current_step="x", now=FROZEN_NOW)
+        self.assertIn("0 statutes", html)
+
+    def test_source_counts_alias_emits_stderr_warning(self):
+        """Using a non-canonical key must log to stderr so the writer can be fixed."""
+        import io
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            r.normalize_source_counts({"statute": 8, "case_law": 5, "doctrine": 6})
+        warnings = buf.getvalue()
+        self.assertIn("non-canonical key", warnings)
+        self.assertIn("'statute'", warnings)
+        self.assertIn("'case_law'", warnings)
+        # Canonical 'doctrine' must NOT trigger a warning.
+        self.assertNotIn("'doctrine'", warnings)
+
+    def test_source_counts_canonical_keys_do_not_warn(self):
+        """Canonical schema must be silent — warnings should only fire on aliases."""
+        import io
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            r.normalize_source_counts({"statutes": 8, "cases": 5, "doctrine": 6})
+        self.assertEqual(buf.getvalue(), "")
+
     def test_active_subagent_chip_rendered_legacy_string(self):
         """Backwards-compat: bare string in `active_subagent` should still render one chip."""
         st = _state(active_subagent="case-law-researcher")

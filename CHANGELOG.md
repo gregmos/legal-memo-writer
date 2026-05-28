@@ -6,6 +6,96 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ---
 
+## 1.0.0 — 2026-05-28 (first public release — Lessons Studio removed, README rewritten for GitHub)
+
+**This is the first public release of `memoforge`.** Two large changes land together: the Lessons Studio (cross-run learning) subsystem is removed from the plugin, and `README.md` is rewritten from scratch as a GitHub landing page for end users (lawyers, lay readers) rather than the prior engineering-internal layout.
+
+### Lessons Studio removal
+
+Phase 11.5 (post-export `lessons-extractor` dispatch), Phase 1.4 (advisory read of `learned-patterns.md`), the `/memoforge:lessons` Studio skill, pill #13 *Lessons* in the live-progress dashboard, the `lessons_extraction` state-machine phase, and the two telemetry events `phase_11_5_attempted` + `lessons_extracted` are all gone. The remaining pipeline is the v0.6.x shape (intake → planning → research → drafting → revision → polish → export → done) with all post-v0.6.x dashboard, visualize-widget, and state-validation infrastructure intact.
+
+### Why
+
+The Lessons Studio kept being silently skipped on long-running Full-mode tasks. The safeguards lived inside `skills/memo/SKILL.md` prose:
+
+- v0.7.0 introduced the system end-to-end.
+- v0.8.0 added a Studio visualize widget + monthly archive rollover.
+- v0.8.1 added a `phase_11_5_attempted` sentinel + "DO NOT end the turn here" callout, so a missed Phase 11.5 would be visible in `events.jsonl`.
+- v0.8.2 deferred the `phase_transition → done` event into Phase 11.5's tail and added a visible pill #13 *Lessons* to the live-progress dashboard, so users would notice if the pill never lit up.
+
+In the 2026-05-28 production run (`memo-20260528T072015Z-gdpr-ai-support-transcripts`, ~4 hours wall-clock) all three v0.8.x safeguards failed simultaneously: `events.jsonl` stopped being emitted entirely after event #31 (~2h into the run), the live-progress timeline went `client_readiness → export → done` with NO `lessons_extraction` entry, `~/.claude/plugin-data/memoforge/` was never created, and the renderer cosmetically marked pill #13 *Lessons* as completed (a separate bug, only because the renderer treated terminal `done` as "all earlier phases must be completed" without checking the timeline). The root cause is that Cowork's context summarization compresses SKILL.md prose during long runs — by the time Phase 11 finishes, the explicit "emit sentinel FIRST" and "DO NOT end turn" instructions are no longer in active context. Spec-strength escalations have reached diminishing returns.
+
+The system is being cut rather than patched further; any future re-introduction needs a non-prompt-resident enforcement mechanism (Stop hook, harness-level guard) instead of more SKILL.md prose.
+
+### Removed (entire subsystem)
+
+- `agents/lessons-extractor.md` — the two-pass cross-run learning subagent.
+- `skills/lessons/` — the `/memoforge:lessons` Studio skill (interactive batch-review + `summary` / `stats` / `rollback` sub-commands).
+- `scripts/resolve_lessons_home.py` — `LESSONS_HOME` path resolver.
+- `skills/memo/SKILL.md` — Phase 1.4 (Read learned patterns), Phase 11.5 (entire phase including sentinel, dispatch, close-out), the "DO NOT end the turn here" callout at end of Phase 11, the Phase 12 conditional "💡 N new lessons proposed" appendix line, and the inline edits in Phase 11 that targeted `lessons_extraction` instead of `done`.
+- `skills/memo/state-schema.md` — `lessons_extraction` enum value and explanation paragraph; `final_docx_path` predicate restored to `current_phase == "done"` only.
+- `skills/memo/references/events-contract.md` — §"Tier 2 — Cross-run learning events" (sentinel + `lessons_extracted` schemas, triage matrix, examples) and §"Tier 2 — Lessons Studio events" (`visualize_*` events for the Studio's own `events.jsonl`).
+- `skills/memo/references/widget-schemas.md` — §"Lessons Studio summary" and §"Lessons Studio statistics" widget data-payload sections plus the two corresponding top-table rows and the preface clause about the Studio-local precheck cache.
+- `skills/memo/references/live-progress-contract.md` — `lessons-extractor` chip row + budget sentence + "Lessons-extractor specifics" paragraph.
+- `skills/memo/references/pipeline-contract.md` — `lessons_extraction` row in the phase matrix; cell modifications in the `export` and `done` rows.
+- `skills/memo/references/logging-contract.md` — lessons-extractor references in the Tier 1 vs Tier 2 motivation paragraphs.
+- `skills/continue/SKILL.md` — resume-after-export note about Phase 11.5 being skipped on recovery.
+- `scripts/validate_state.py` — `lessons_extraction` from `PHASES_ORDERED`; `final_docx_path` predicate scoped to `done` only.
+- `scripts/render_live_progress.py` — pill #13 *Lessons* entry from PHASES list (total goes 14 → 13); *Summary* renumbered to id 13.
+- `scripts/tests/test_validate_state.py` — `test_lessons_extraction_happy_path`, `test_lessons_extraction_without_final_docx_path_rejected`.
+- `scripts/tests/test_render_live_progress.py` — `test_lessons_extraction_phase_maps_to_pill_13`; pill-count assertions updated 14 → 13.
+- `lib/docx-render/README.md` — Phase 11 transition wording updated to `done`.
+- `README.md` — §"Cross-run learning — the Lessons Studio (v0.7.0+)" entirely (~85 lines including the plugin-data layout tree). See §"README rewrite" below for the full new structure.
+- `.claude-plugin/plugin.json` — `"and cross-run learning via the Lessons Studio"` clause dropped from `description`; `version` bumped to `1.0.0`.
+
+### Preserved
+
+- **All CHANGELOG history.** Entries for v0.7.0, v0.7.1, v0.7.2, v0.8.0, v0.8.1, v0.8.2 stay intact as historical record — CHANGELOG.md is not auto-loaded into orchestrator context.
+- **All Lessons Studio source code.** Copied verbatim into `../attic-lessons-studio/v0.8.2/` (sibling of `memoforge/`, OUTSIDE the plugin tree so Cowork's plugin loader does not index it). Includes original `.md` and `.py` files plus extracted SKILL.md/references fragments and a plain-text `README.txt` documenting the snapshot and restore recipe.
+- **All v0.7.x and v0.8.x dist zips.** `dist/memoforge-0.7.0.zip` through `dist/memoforge-0.8.2.zip` remain on disk as recovery points.
+- **Plugin-data dir.** Users who already have `~/.claude/plugin-data/memoforge/` from prior v0.7.x / v0.8.x runs can keep it — v1.0.0 does not read or write it. Delete manually if you want to reclaim the disk space.
+
+### README rewrite
+
+`README.md` is fully rewritten for GitHub presentation, ~165 lines (vs ~390 in v0.8.2). The new structure targets a non-developer audience (lawyers, lay readers evaluating whether the plugin fits their workflow):
+
+1. Hero with project name, one-line tagline, three static badges (version, license, "built for Cowork")
+2. **What it does** — narrative on the multi-agent pipeline in plain English
+3. **What you get** — five concrete outcomes (docx memo, source pack, reviewer findings, honest verdict, audit trail)
+4. **Quick start** — three-step install + connect + ask flow with real example queries
+5. **How it works** — short narrative + ASCII pipeline diagram + Brief vs Full mode comparison
+6. **What you'll see along the way** — the four user-facing checkpoints walked through
+7. **Customization** — Style Studio + output folder resolution
+8. **What it won't do** — four honest limitations
+9. **Privacy and data** — explicit statement that everything stays on the user's machine
+10. **Going deeper** — pointers to `skills/memo/references/` and `CHANGELOG.md` for the technically curious
+11. **License + contact**
+
+Removed from the README (canonical content lives in `skills/memo/references/` and remains authoritative): the phase-by-phase pipeline walkthrough, the agent-by-agent breakdown, the MCP / WebSearch policy expansion, the live-progress dashboard internals, the always-deliver invariant section, the full repo layout tree.
+
+### Test results
+
+149 tests pass (+ 28 subtests) after removal — same count as v0.8.2 minus the three deleted lessons tests.
+
+### Recovery recipe (for the removed Lessons Studio)
+
+Two equivalent paths:
+
+1. `cp -r ../attic-lessons-studio/v0.8.2/{agents,skills,scripts}/* memoforge/{agents,skills,scripts}/` + re-apply the surgical edits documented in `attic-lessons-studio/v0.8.2/skills/memo/SKILL-fragments.md` and the `references-fragments/*.md` files.
+2. `git show <pre-removal-commit>:<path> > <path>` per-file, or `git checkout <pre-removal-commit> -- <paths>`.
+
+### File map
+
+`memoforge/.claude-plugin/plugin.json` · `memoforge/CHANGELOG.md` · `memoforge/README.md` · `memoforge/lib/docx-render/README.md` · `memoforge/scripts/render_live_progress.py` · `memoforge/scripts/validate_state.py` · `memoforge/scripts/tests/test_render_live_progress.py` · `memoforge/scripts/tests/test_validate_state.py` · `memoforge/skills/continue/SKILL.md` · `memoforge/skills/memo/SKILL.md` · `memoforge/skills/memo/state-schema.md` · `memoforge/skills/memo/references/events-contract.md` · `memoforge/skills/memo/references/live-progress-contract.md` · `memoforge/skills/memo/references/logging-contract.md` · `memoforge/skills/memo/references/pipeline-contract.md` · `memoforge/skills/memo/references/widget-schemas.md`
+
+Deleted: `memoforge/agents/lessons-extractor.md` · `memoforge/skills/lessons/SKILL.md` · `memoforge/scripts/resolve_lessons_home.py`
+
+### Release note
+
+An internal `memoforge-0.9.0.zip` was built during development of this release but never published — `1.0.0` is the first tag and the first published artifact. The GitHub repository was renamed from `legal-memo-writer` to `memoforge` as part of this release.
+
+---
+
 ## Project arc — live-progress dashboard, shipped (v0.2.0 → v0.6.2)
 
 > Reference summary for the multi-week arc that turned the plugin's silent 5–40-minute autonomous blocks into a continuous, real-time sidebar dashboard. The system now works end-to-end in production Cowork on Windows: artifact mints on Phase 1, refreshes in real time as subagents work, ticks elapsed-time counters every second via JS, and never surfaces a permission prompt to the user.
@@ -63,6 +153,151 @@ Documented empirically through this arc (also in `~/.claude/projects/.../memory/
 - The diagnostic probe that proved §9: `dist/memoforge-0.5.0-probe.zip` (archived on disk; never republished).
 
 ---
+
+## 0.8.2 — 2026-05-27 (lessons-extractor path fix + visible Phase 11.5 pill)
+
+**Two regressions surfaced by user testing of v0.8.1:**
+
+1. **Wrong plugin-data path on Windows.** The lessons-extractor wrote signal/lesson files into `<task_work_dir>/plugin-data/...` instead of `~/.claude/plugin-data/memoforge/`. Both the orchestrator and the agent computed `LESSONS_HOME` via the bash expansion `${MEMOFORGE_LESSONS_HOME:-$HOME/.claude/plugin-data/memoforge}`; in Cowork's plugin-skill bash on Windows `$HOME` was empty, so the expansion collapsed to a relative path that resolved against cwd. The Lessons Studio (`/memoforge:lessons`) used the same expansion but happened to run in a context where `$HOME` was set — so it scanned the right path, found nothing, and printed the "No lessons yet" empty-state even though signals had been written elsewhere.
+
+2. **Phase 11.5 was invisible during its 4–5 minute window.** After Phase 11 set `current_phase = done` and the docx artifact card rendered, the live-progress dashboard sat on pill #13 *Summary* with no visible difference between "still extracting lessons" and "task complete." Users switched tabs prematurely.
+
+### Path fix — Python-resolved canonical root
+
+- New `scripts/resolve_lessons_home.py`: honors `$MEMOFORGE_LESSONS_HOME` if set, else returns `str(Path.home() / ".claude" / "plugin-data" / "memoforge")`. `Path.home()` reads `%USERPROFILE%` on Windows and `$HOME` on Unix — reliable across shells (Cowork plugin-skill bash, PowerShell, cmd, Git Bash). Verified to return the canonical absolute path even when bash `$HOME=""`.
+- Three call sites swap to the helper: `skills/memo/SKILL.md` Phase 11.5 §"Resolve lessons home"; `skills/lessons/SKILL.md` §"Resolve plugin-data paths"; the lessons-extractor agent reads `lessons_home` from its prompt verbatim (orchestrator already passed it) instead of recomputing.
+- The lessons-extractor `Inputs` section now hard-requires `lessons_home` from the dispatch prompt; missing → `Status: extraction_failed:missing_lessons_home_param` rather than guessing.
+
+### Visible Phase 11.5 — new pill #13 *Lessons*
+
+- `scripts/render_live_progress.py` PHASES list grows from 13 to 14 entries: pill #13 *Lessons* (state_phase `lessons_extraction`), pill #14 *Summary* (state_phases `done | failed | cancelled_by_user`).
+- Phase 11 in `memo/SKILL.md` now transitions `export → lessons_extraction` (instead of `export → done`). Phase 11.5 close-out emits the final `lessons_extraction → done` transition after the lessons-extractor returns. Timeline entries open and close around the new phase so the dashboard's elapsed-time ticker advances against pill #13 throughout extraction.
+- `lessons-extractor` agent gains four `update_artifact` emissions at internal step boundaries (`lessons-pass1-start`, `lessons-pass2-start`, `lessons-finalising`, `lessons-done`) — best-effort, flag-gated, wrapped in `|| true`. Pill #13 thus shows a live-ticking counter for the whole 4–5 minute window, not a frozen Summary pill.
+- `state-schema.md` `current_phase` enum gains `"lessons_extraction"`. `scripts/validate_state.py` PHASES_ORDERED inserts the new phase between `export` and `done`; `final_docx_path` predicate now covers both `lessons_extraction` and `done` (docx is on disk before the transition).
+- `skills/continue/SKILL.md` documents that the resume-after-export path jumps straight to `done` (skipping Phase 11.5) — partial-failure recovery never retroactively extracts lessons.
+
+### Doc + test updates
+
+- `pipeline-contract.md`, `events-contract.md`, `live-progress-contract.md`, `lib/docx-render/README.md` and `state-schema.md` updated for the new transition order and pill count.
+- Tests: 5 hardcoded `"13"` → `"14"` in `test_render_live_progress.py`; new `test_lessons_extraction_phase_maps_to_pill_13`. New `test_lessons_extraction_happy_path` and `test_lessons_extraction_without_final_docx_path_rejected` in `test_validate_state.py`. Full suite: 152 passed + 29 subtests.
+
+### File map
+
+- `memoforge/scripts/resolve_lessons_home.py` (new)
+- `memoforge/scripts/render_live_progress.py` (PHASES list)
+- `memoforge/scripts/validate_state.py` (PHASES_ORDERED + final_docx_path predicate)
+- `memoforge/scripts/tests/test_render_live_progress.py`, `test_validate_state.py`
+- `memoforge/agents/lessons-extractor.md` (Inputs, Live progress, Pre-return checklist, Failure mode)
+- `memoforge/skills/memo/SKILL.md` (Phase 11 transition, Phase 11.5 path resolution + close-out, Mantras prose)
+- `memoforge/skills/lessons/SKILL.md` (path resolution)
+- `memoforge/skills/memo/state-schema.md` (current_phase enum)
+- `memoforge/skills/memo/references/events-contract.md`, `pipeline-contract.md`, `live-progress-contract.md`
+- `memoforge/skills/continue/SKILL.md` (resume-after-export note)
+- `memoforge/lib/docx-render/README.md`
+- `memoforge/.claude-plugin/plugin.json` (version 0.8.1 → 0.8.2)
+
+---
+
+## 0.8.1 — 2026-05-27 (Phase 11.5 sentinel event + DO-NOT-end-turn guard at Phase 11 boundary)
+
+**Forensics on the v0.8.0 GDPR/AI-Act test run revealed Phase 11.5 (lessons extraction) was silently skipped — no `agent_dispatched` for `lessons-extractor`, no `lessons_extracted` event, and `~/.claude/plugin-data/memoforge/` was never created. The skip was indistinguishable from a silent failure inside the extractor: both leave `events.jsonl` ending at Phase 11's `phase_transition → done`. This release adds a sentinel event that disambiguates the two cases and a structural guard at the Phase 11 boundary that makes the skip much harder.**
+
+### Why
+
+Phase 11 writes `current_phase = done` AND emits the `phase_transition → done` event AS ITS FINAL STEP, BEFORE Phase 11.5 has even started. From the orchestrator's perspective the run looks "done" at that point, and Phase 11.5 (best-effort, no TodoWrite item by design, no own state flag) is easy to skim past. SKILL.md spec for Phase 11.5 was complete and unambiguous, but provided no signal in `events.jsonl` to tell — after the fact — whether the orchestrator at least *tried* to run it.
+
+### What changed
+
+- **New `phase_11_5_attempted` Tier-2 event** (registered in `references/events-contract.md`). Emitted as the VERY FIRST action of Phase 11.5 — before resolving `LESSONS_HOME`, before `active_subagents` plumbing, before agent dispatch. Pure observability sentinel, `data: {}`, wrapped in `|| true`. Pair with `lessons_extracted` for a 5-row triage matrix that distinguishes "Phase 11.5 healthy" / "extractor failed" / "dispatch chain broke silently" / "Phase 11.5 skipped entirely" / "schema violation".
+- **`### DO NOT end the turn here (MANDATORY)` callout** added at the end of Phase 11 in `SKILL.md`, immediately before the Phase 11.5 header. Explicitly tells the orchestrator that `current_phase = done` after Phase 11 is a **docx-delivered flag**, not a **turn-end signal**, and names Phase 11.5 and Phase 12 as the remaining mandatory phases.
+- **`### Emit phase_11_5_attempted sentinel FIRST`** subsection added at the start of Phase 11.5 (after the intro paragraphs, before "Resolve lessons home"). Inline `log_event.py` invocation with full `|| true` wrap and a complete triage table copied for the reader.
+
+### What did NOT change
+
+- Phase 11.5 remains best-effort. The sentinel does not block Phase 12 if it fails to emit — it is wrapped in `|| true` like every other Phase 11.5 emission.
+- `current_phase = done` is still set in Phase 11 (not moved). The structural reinforcement is via the explicit "DO NOT end turn" callout, not via reordering state writes. If the sentinel-plus-guard approach is still insufficient empirically (next test run reveals skip continues), the v0.8.2 follow-up is to defer the `phase_transition → done` event from Phase 11 into Phase 11.5's tail.
+- No state-schema change, no agent-spec change, no orchestrator-mantra change beyond the two text additions above.
+- TodoWrite list stays at 14 items (the explicit non-extension reasoning in SKILL.md §"Mantras applied vs skipped" is unchanged — Phase 11.5 by design does not appear in the user-tracked pipeline list).
+
+### Forensics — what tipped this off
+
+- v0.8.0 production run `memo-20260527T073021Z-gdpr-ai-support-transcripts` (GDPR / AI-Act memo) completed end-to-end with `final_status: approved_on_v3` and a delivered docx. Substance approved (logic 96, citations 94, counterarguments 94).
+- BUT: `events.jsonl` ended at `phase_transition → done` (event #117, `reason: "docx_written"`). No `lessons-extractor` `agent_dispatched`, no `lessons_extracted`. `~/.claude/plugin-data/memoforge/` directory did not exist anywhere on the user's machine despite multiple prior production runs.
+- Without the sentinel introduced here, "Phase 11.5 was reached but every emission inside it failed silently" was indistinguishable from "Phase 11.5 was never reached because the orchestrator misread `done` as a turn-end". Next test run with v0.8.1 will resolve the ambiguity in one line of `grep`.
+
+### Test plan for v0.8.1
+
+Run any Full-mode `/memoforge:memo` task. After the docx delivers:
+
+```bash
+grep '"event":"phase_11_5_attempted"\|"event":"lessons_extracted"' "$WORK_DIR/events.jsonl"
+```
+
+- **Both events present** → Phase 11.5 healthy; v0.8.1 working as intended; lessons accumulating in `~/.claude/plugin-data/memoforge/`.
+- **Sentinel only** → Phase 11.5 reached but extractor failed silently after the sentinel; check `agent_dispatched` / `agent_returned` rows for `lessons-extractor` and the agent's tool logs.
+- **Neither** → Sentinel itself was skipped; the structural guard at end-of-Phase-11 didn't bite. Escalate to v0.8.2 (defer Phase 11 `done` event into Phase 11.5's tail).
+
+---
+
+## 0.8.0 — 2026-05-27 (Phase 3 polish: visualize widget for Lessons Studio + stats subcommand + monthly signal archive rollover)
+
+**Closes the three remaining items from "Layer B — cross-run learning, v3" §"Implementation order — Phase 3 (Polish)" left as TODO in v0.7.0: a visualize widget for the Studio summary, a `stats` subcommand, and a monthly archive rollover for stale signals. No behavior change for any memo task itself; the lessons-extractor + Studio surface that v0.7.0 shipped as text-only now renders a data_viz widget in the sidebar when `visualize` is available, exposes a read-only `stats` aggregate, and trims the signals working set automatically once per calendar month.**
+
+### Why
+
+v0.7.0 shipped the cross-run learning system (Phase 1 telemetry + Phase 2 Studio + override reads) and the v0.7.0 CHANGELOG explicitly noted: *"No visualize widget for the Studio summary. v0.7.0 ships text-only Studio UI; visualize widget is Phase 3 polish."* Three concrete gaps remained from the v3 plan:
+
+1. **No visual surface on the Studio.** The Studio's summary screen was a plain markdown bullet list rendered in chat. Cowork users have a sidebar dashboard for every other long-running surface (live-progress, Phase 1.5/2a/4a/6.6/12 widgets) — the Studio's batch-review experience is the one place that benefited most from a visual at-a-glance and didn't have one.
+2. **No aggregate view.** `summary` is "since last visit" focused (great for incremental review); there was no command to see *all-time* aggregates (apply/reject ratios per tier, per-classification convergence, MCP health by tool, currency-stale top sources). Users wanting to evaluate "is this learning system actually helping?" had to read raw files.
+3. **Signals accumulated indefinitely.** `agents/lessons-extractor.md` Pass 1 created `signals/archive/` via `mkdir -p` but never wrote to it. After 30 days a signal stops contributing to threshold counts (Pass 2 globs `signals/*.json` filtered by `observed_at >= now - 30d`) but its file lingered, eventually slowing the `glob+parse` step. Over many months the dir would grow unbounded.
+
+### What changed
+
+**Part A — Visualize widget for the Lessons Studio summary (`data_viz` module).**
+
+- **`skills/memo/references/widget-schemas.md`** gains two new sections: §"Lessons Studio summary" (rendered by the interactive Studio at Step 1) and §"Lessons Studio statistics" (rendered by the new `stats` subcommand). Both use the cached `data_viz` module guidelines — same module Phase 12 Final dashboard uses — so no new `read_me` modules are required. Top widget-table updated with the two new rows. Snapshot paths live under `$LESSONS_HOME/widgets/lessons-studio-<unix_ts>.html` and `lessons-stats-<unix_ts>.html` respectively, NOT under `$WORK_DIR/widgets/` — the Studio runs outside any memo task and has no work_dir.
+- **`skills/lessons/SKILL.md`** gains a new §"Visualize precheck (v0.8.0+)" section right after "Resolve plugin-data paths" that mirrors the memo-pipeline precheck pattern (`skills/memo/SKILL.md:325-347`) into a Studio-local cache: `$LESSONS_HOME/meta/visualize-precheck.json` (30-day TTL) + `$LESSONS_HOME/cache/visualize-guidelines.md` (one-shot `read_me` for `["data_viz"]`). New env vars `WIDGETS_DIR`, `VISUALIZE_PRECHECK`, `VISUALIZE_GUIDELINES_CACHE`, `STUDIO_EVENTS_LOG` added to the path-resolve block; bootstrap `mkdir -p` extended to create `widgets/` and `cache/`. Graceful fallback: if `enabled=false` or anything throws, Studio falls through to the original text-only summary.
+- **§"Step 1 — Render summary screen" restructured into Path A (widget) / Path B (text fallback).** Path A builds the JSON payload (≤2 KB) from the corpus the Studio already scans, generates HTML ≤30 KB following the cached `data_viz` guidelines, atomic-writes the snapshot, calls `<namespace>__show_widget`, emits a `visualize_widget_rendered` event into `$STUDIO_EVENTS_LOG`, and prints a 6-line chat companion ("widget rendered in sidebar" + the 3 since-last-visit counters). Path B is the v0.7.x text summary unchanged. The §"Summary sub-command" picks the same A/B branch.
+- **Hook `hooks/hooks.json` unchanged** — the v0.6.3 PreToolUse matcher `mcp__.*visualize.*__(show_widget|read_me)` already pre-approves the new Studio widget calls; no permission changes required.
+
+**Part B — `stats` subcommand (`/memoforge:lessons stats`).**
+
+- **`argument-hint`** extended: `[rollback <lesson_id> | summary | stats | (no args for interactive Studio)]`.
+- **Parse `$ARGUMENTS`** branch added for `stats`; unknown-action error message updated to mention the new subcommand.
+- **New §"Stats sub-command"** section between §"Summary sub-command" and §"Exit and update last_review.json". Builds the extended payload per `widget-schemas.md §"Lessons Studio statistics"` (≤4 KB JSON — adds `apply_reject_ratio` per Tier 2/3, full `convergence_by_type` from `learned-patterns.md` § Convergence statistics, full `mcp_health` table, and `currency_stale_top3`). Read-only: does NOT touch `meta/last_review.json` (same contract as `summary`). When visualize is enabled, renders Path A widget AND prints the full text tables as a companion (stats screenshots benefit from preserving the numbers in chat); when disabled, prints Path B alone.
+
+**Part C — Monthly archive rollover for old signals.**
+
+- **`agents/lessons-extractor.md`** Pass 1 init gains a new §"Monthly archive rollover (v0.8.0+)" block AFTER the existing `mkdir -p` step and BEFORE the §"What you read" section. A marker file `$SIGNALS_DIR/archive/.last-archive-yyyymm` (single line containing the YYYY-MM of the last sweep) gates the block — it's a no-op except on the first dispatch of each calendar month. The sweep parses `observed_at` from each `signals/*.json` with a small embedded Python (deterministic JSON layout; falls back to skipping malformed files), moves anything older than 30 days into `signals/archive/<YYYY-MM-of-observed_at>/`, captures the count in `ARCHIVE_MOVED`. Wrapped in `|| true` per the agent's existing best-effort discipline. Pass 2 corpus glob is unchanged — already explicitly `glob $SIGNALS_DIR/*.json (NOT archive/)` (line 168 in v0.7.2; verified, no edit needed) — archived signals never re-enter threshold counts.
+- **Final response template** gets a new optional line `Archive rollover: <N> signals moved to archive/<YYYY-MM>/` emitted only when N>0. Counter definitions section documents `A` (`archive_moved`); orchestrator's parser (in `skills/memo/SKILL.md`) gets `A = <int after "Archive rollover: ">` added to the parse list and `archive_moved` added to the `lessons_extracted` event's `data` payload.
+- **`skills/memo/references/events-contract.md` §"lessons_extracted"** schema gains the `archive_moved` field with explanatory comment; example success entry updated to include `archive_moved: 0`; a new "first-of-month entry" example added showing `archive_moved: 47`. Failure entry example also updated. The orchestrator's parser tolerates the field being absent (defaults to 0) for backward-compat with v0.7.x agent versions that might still be in flight during the upgrade.
+
+**Part D — Cross-cutting cleanup.**
+
+- **`skills/lessons/SKILL.md`** §"Exit and update last_review.json" template bumps hard-coded `session_version: "0.7.0"` → `"0.8.0"`. Convention going forward: bump this in lockstep with `plugin.json.version` whenever Studio behavior changes.
+- **`README.md`** — version badge `0.7.2 → 0.8.0`, install line `memoforge-0.7.2.zip → memoforge-0.8.0.zip`, §"Invoke the Studio" gains the `/memoforge:lessons stats` command and a new "v0.8.0 additions" paragraph documenting the widget rendering + archive rollover.
+- **`.claude-plugin/plugin.json`** version → `0.8.0`.
+
+### Out of scope (deferred)
+
+- **Standalone `scripts/rotate_signal_archive.py` + `/memoforge:lessons archive` subcommand** for manual recovery — the auto-rollover in lessons-extractor covers the steady-state need. A manual subcommand can be added in a future patch if recovery scenarios surface (signal corpus corruption, restoring from backup, etc.).
+- **Interactive Apply/Reject inside the widget** — widgets carry no JavaScript callbacks per the existing `widget-schemas.md` contract. Decisions stay in `AskUserQuestion` for v0.8.0.
+- **Cross-machine sync of plugin-data**, **LLM-judged auto-grading of applied lessons**, **`unreject` action** — all listed as Out of Scope in the v3 plan; unchanged here.
+
+### Tests
+
+No new Python code. The existing 137-test suite passes unchanged. Verification is manual per the v3 plan §"Verification" — visualize precheck cache regeneration, widget renders, graceful fallback when disabled, `stats` doesn't touch `last_review.json`, monthly archive rollover triggers exactly once per calendar month and moves only signals older than 30 days, Pass 2 corpus excludes the archive subtree.
+
+### Effect on users
+
+- **First Studio visit after v0.8.0 install with `visualize` enabled** → sidebar widget appears alongside the chat companion. No interaction change — Apply/Reject still happens through the existing `AskUserQuestion` menu.
+- **First Studio visit without `visualize`** → identical behavior to v0.7.x (text-only summary). Graceful fallback contract preserved.
+- **First memo task of a new calendar month** → the Phase 11.5 lessons-extractor dispatch may take a fraction longer (one filesystem walk + moves) and the `lessons_extracted` event records `archive_moved: N` for visibility. Steady-state runs the rest of the month are unaffected.
+- **Anyone running `/memoforge:lessons stats`** → new aggregate view; safe to call any time without consuming the since-last-visit window.
+
+### Manifest match
+
+`.claude-plugin/plugin.json (0.8.0) === README badge (0.8.0) === README install line (memoforge-0.8.0.zip) === CHANGELOG top entry (0.8.0) === dist/memoforge-0.8.0.zip`.
 
 ## 0.7.2 — 2026-05-26 (remove side-car artifact escape hatch from HARD RULE)
 
@@ -289,8 +524,8 @@ Best-effort throughout — failures of the `find ... -delete` commands swallow s
 - **No automatic merging of accepted lessons upstream into the plugin.** Users can manually upstream a recurring lesson into the canonical plugin via PR if they want; the Studio does not do this automatically.
 - **No LLM auto-grading of lessons.** The user remains the gate for Tier 2/3 lessons via the Studio's Apply/Reject decisions. The lessons-extractor's quality gate filters out obviously-bad candidates but the user reviews surviving proposals.
 - **No cross-machine sync of plugin-data.** Each plugin install's `~/.claude/plugin-data/memoforge/` is local. Users who want to share patterns can manually copy override files across machines.
-- **No monthly archive rollover for old signals.** Deferred to a future patch; the `signals/archive/` directory is created but currently unused. Signal files accumulate; the 30-day threshold window means signals older than 30 days are excluded from threshold counts but remain on disk.
-- **No visualize widget for the Studio summary.** v0.7.0 ships text-only Studio UI; visualize widget is Phase 3 polish.
+- **No monthly archive rollover for old signals.** Deferred to a future patch; the `signals/archive/` directory is created but currently unused. Signal files accumulate; the 30-day threshold window means signals older than 30 days are excluded from threshold counts but remain on disk. (Shipped in v0.8.0 — see v0.8.0 §"Part C — Monthly archive rollover".)
+- **No visualize widget for the Studio summary.** v0.7.0 ships text-only Studio UI; visualize widget is Phase 3 polish. (Shipped in v0.8.0 — see v0.8.0 §"Part A — Visualize widget for the Lessons Studio summary".)
 
 ### Reference
 

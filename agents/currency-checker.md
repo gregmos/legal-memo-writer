@@ -177,8 +177,6 @@ printf '{"ts":"%sZ","tool":"%s","category":"%s","query":"%s","topic_key":"%s","r
   >> "<work_dir>/logs/currency-checker-tools.jsonl"
 ```
 
-This file feeds `agents/lessons-extractor.md` at Phase 11.5. Currency-checking patterns (e.g. specific statutes consistently flagged outdated, specific MCP tools unreliable for currency verification, fallback latency stats) feed into `learned-patterns.md` — either as Tier 0 aggregate stats (recomputed unconditionally each run) or as Tier 1 advisory hints (auto-applied with audit records when ≥2 task occurrences for the same source/layer).
-
 ## Live progress
 
 Read `state.json.config.live_progress_enabled`. If `true`, emit two real-time updates via `mcp__cowork__update_artifact` per `skills/memo/references/live-progress-contract.md` — these calls flush to the parent's chat scroll in real time (postmortem §9 STREAMING PASS, 2026-05-25). If `false`, skip silently.

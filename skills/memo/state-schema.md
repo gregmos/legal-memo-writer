@@ -78,7 +78,7 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     "final_plan_iteration": null | <int>            // set to iteration number when status transitions to approved
   },
 
-  "current_phase":                                  // owner: memo (sets), mediator (advances during loop), memo Phase 11 (sets done)
+  "current_phase":                                  // owner: memo (sets), mediator (advances during loop), memo Phase 11 (sets done after docx is written)
     "intake_preliminary_research" | "intake_questions_pending" | "mode_pick_pending" | "planning" | "plan_approval_pending" | "research" | "research_sufficiency" | "research_sufficiency_followup_pending" | "currency_check" | "source_pack" | "source_review_pending" | "drafting" | "revision_loop" | "client_readiness" | "export" | "done" | "failed" | "cancelled_by_user",
   // `source_review_pending` replaces the v0.0.42 `heartbeat_pending` (which is deprecated-legacy — see /continue migration). The phase ends the assistant turn explicitly so Cowork flushes chat after the parallel research block.
   // `mode_pick_pending` is the hard gate for Phase 1.5 mode choice. It sits between `intake_questions_pending` and `planning`. /continue must NOT advance from this phase to `planning` until `state.json.mode` is set via the Phase 1.5 AskUserQuestion.
@@ -126,7 +126,7 @@ Single source of truth for `state.json` shape. All skills and agents that read o
     | "accepted_early_on_v<N>"                       // user picked "Accept v<N> as final" at end-of-iteration gate
     | "fallback_research_summary_delivered"           // user-chosen research-summary mode (heartbeat → Phase 8 branch A); the docx banner says "RESEARCH SUMMARY MODE"
     | "fallback_summary_delivered",                  // universal catastrophic fallback per always-deliver.md (writes fallback-summary.md, may or may not invoke md_to_docx.py)
-  "final_docx_path": null | "<absolute path>", // owner: memo Phase 11. ABSOLUTE path equal to `<state.json.work_dir>/memo-<slug>.docx` after a successful export, or `<state.json.work_dir>/memo-<slug>.md` if Phase 11 fell back to delivering markdown (per `always-deliver.md`). Validator (`scripts/validate_state.py`) requires `pathlib.Path(final_docx_path).is_file()` once `current_phase == done`. The legacy `final_artifacts_dir` field is removed — the audit trail folder IS `work_dir`.
+  "final_docx_path": null | "<absolute path>", // owner: memo Phase 11. ABSOLUTE path equal to `<state.json.work_dir>/memo-<slug>.docx` after a successful export, or `<state.json.work_dir>/memo-<slug>.md` if Phase 11 fell back to delivering markdown (per `always-deliver.md`). Validator (`scripts/validate_state.py`) requires `pathlib.Path(final_docx_path).is_file()` once `current_phase == "done"`. The legacy `final_artifacts_dir` field is removed — the audit trail folder IS `work_dir`.
 
   "attempts": {                                     // owner: memo/continue (retry-budget persistence)
     "research_followup": 0,                         // v0.6.3+: now counts BOTH researcher-side AND user-side (Phase 6.6) follow-ups, max 1 across both. Incremented atomically by memo Phase 6 Branch B6a (user-followup gate fires) OR Branch B6b (legacy researcher re-dispatch, no Subset U gaps). Once consumed, both follow-up paths are closed for the task.
