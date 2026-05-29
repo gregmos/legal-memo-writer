@@ -6,6 +6,14 @@
 
 ---
 
+## See it in action
+
+![Memoforge — from a legal question to a cited .docx memorandum](docs/media/memoforge-promo.webp)
+
+<sub>~60-second walkthrough: intake → research plan → three researchers in parallel → a five-reviewer stress test → exported <code>.docx</code>.&nbsp; <a href="https://github.com/gregmos/memoforge/releases/download/v1.1.1/memoforge-promo.mp4">▶ Full-resolution MP4</a> (1920×1080).</sub>
+
+---
+
 ## What it does
 
 **memoforge** is a Cowork plugin that turns a research-grade legal question into a structured, footnoted legal memorandum.
